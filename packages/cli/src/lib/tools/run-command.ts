@@ -6,7 +6,7 @@ import { z } from "zod";
 import { executeProcess, type ExecuteProcessResult } from "../process";
 import { assertSafeWorkspaceRoot } from "../workspace";
 
-const ALLOWED_COMMANDS = ["npm", "yarn", "pnpm"] as const;
+const ALLOWED_COMMANDS = ["npm", "yarn", "pnpm", "bun"] as const;
 type AllowedCommand = (typeof ALLOWED_COMMANDS)[number];
 
 const MAX_OUTPUT_LENGTH = 1_000_000; // 1MB
@@ -15,7 +15,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 /**
  * Tokens that imply shell parsing/control flow.
  *
- * This tool intentionally does not run through a shell. It executes npm/yarn/pnpm
+ * This tool intentionally does not run through a shell. It executes package managers
  * directly with parsed argv, so shell syntax would otherwise be passed through
  * as literal arguments and produce confusing package/framework errors.
  */
@@ -39,9 +39,9 @@ export async function createRunCommandTool(workspaceRoot: string) {
 
   return {
     runCommand: tool({
-      description: `Execute a finite npm/yarn/pnpm command in the workspace.
+      description: `Execute a finite package-manager command in the workspace.
 
-Only npm, yarn, and pnpm are allowed.
+Only npm, yarn, pnpm, and bun are allowed.
 
 This is not a shell. Do not use shell syntax such as:
 - pipes: npm run build | head
@@ -59,6 +59,7 @@ Valid examples:
 - npm install
 - yarn build
 - pnpm test
+- bun test
 
 Avoid long-running commands such as npm run dev unless you expect them to be
 terminated by the timeout.`,

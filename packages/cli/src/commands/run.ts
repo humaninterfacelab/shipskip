@@ -1,4 +1,5 @@
-import { cp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { stepCountIs, ToolLoopAgent } from "ai";
@@ -35,9 +36,8 @@ const runAction = async function (options: RunOptions) {
 
     const templatePath = path.resolve(options.template);
 
-    logger.info("Creating/resetting workspace for the agent...");
-    const workspacePath = path.join(process.cwd(), ".agent-workspace");
-    await rm(workspacePath, { force: true, recursive: true });
+    logger.info("Creating temporary workspace for the agent...");
+    const workspacePath = await mkdtemp(path.join(os.tmpdir(), "shipskip-agent-"));
     await cp(templatePath, workspacePath, {
       recursive: true,
     });

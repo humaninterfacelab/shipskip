@@ -1,4 +1,4 @@
-export const MAX_OUTPUT_LENGTH = 200_000;
+export const MAX_OUTPUT_LENGTH = 1_000_000;
 export const MAX_READ_FILE_BYTES = 2_000_000;
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -65,5 +65,4 @@ export function replaceFirst(
 
   return text.slice(0, index) + newText + text.slice(index + oldText.length);
 }
-
 
