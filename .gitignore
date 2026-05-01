@@ -1,0 +1,49 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# output
+dist/
+out/
+build/
+*.tgz
+
+# generated workspaces
+.agent-workspace/
+
+# test and coverage output
+coverage/
+*.lcov
+
+# logs
+logs/
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# environment files
+.env*
+
+# caches
+.cache/
+.eslintcache
+*.tsbuildinfo
+
+# deployment
+.vercel/
+
+# editor and OS files
+.idea/
+.DS_Store
+*.pem
+
+# next.js
+.next/
+next-env.d.ts
+
+.agents
