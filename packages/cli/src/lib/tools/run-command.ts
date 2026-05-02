@@ -158,13 +158,13 @@ Do not use pipes, redirects, cd, &&, ;, background jobs, command substitution, o
  * name rather than as environment variables.
  */
 function assertNoEnvAssignment(script: string) {
-  const firstToken = script.match(/^\S+/)?.[0];
+  const firstToken = /^\S+/.exec(script)?.[0];
 
   if (!firstToken) {
     throw new Error("Script cannot be empty");
   }
 
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(firstToken)) {
+  if (/^[A-Za-z_]\w*=/.test(firstToken)) {
     throw new Error(
       `Environment-variable assignment is not supported by runCommand. Found "${firstToken}".
 
@@ -204,7 +204,7 @@ function parseCommand(script: string): { cmd: string; args: string[] } {
 }
 
 function isAllowedCommand(cmd: string): cmd is AllowedCommand {
-  return ALLOWED_COMMANDS.some((allowedCommand) => allowedCommand === cmd);
+  return ALLOWED_COMMANDS.includes(cmd as AllowedCommand);
 }
 
 function formatOutput(result: ExecuteProcessResult): string {

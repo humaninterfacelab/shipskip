@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -77,20 +78,10 @@ async function moveWorkspaceFile({
 
   const sourceEntry = await fs.lstat(source.absolutePath).catch(() => null);
 
-  if (!sourceEntry) {
-    return `Source file does not exist: ${from}`;
-  }
+  const sourceCheck = validateSourceFile(sourceEntry, from);
 
-  if (sourceEntry.isSymbolicLink()) {
-    return `Refusing to move symlink: ${from}`;
-  }
-
-  if (sourceEntry.isDirectory()) {
-    return `Source path is a directory, not a file: ${from}`;
-  }
-
-  if (!sourceEntry.isFile()) {
-    return `Source path exists but is not a regular file: ${from}`;
+  if (sourceCheck) {
+    return sourceCheck;
   }
 
   await assertRealPathInsideWorkspace(
@@ -113,23 +104,17 @@ async function moveWorkspaceFile({
 
   const destinationEntry = await fs.lstat(destination.absolutePath).catch(() => null);
 
+  const destinationCheck = validateDestinationFile({
+    destinationEntry,
+    destinationPath: to,
+    overwrite,
+  });
+
+  if (destinationCheck) {
+    return destinationCheck;
+  }
+
   if (destinationEntry) {
-    if (destinationEntry.isSymbolicLink()) {
-      return `Refusing to overwrite symlink: ${to}`;
-    }
-
-    if (destinationEntry.isDirectory()) {
-      return `Destination path is a directory, not a file: ${to}`;
-    }
-
-    if (!destinationEntry.isFile()) {
-      return `Destination path exists but is not a regular file: ${to}`;
-    }
-
-    if (!overwrite) {
-      return `Destination file already exists: ${to}. Use overwrite: true to replace it.`;
-    }
-
     await assertRealPathInsideWorkspace(
       workspaceRoot,
       destination.absolutePath,
@@ -147,6 +132,57 @@ async function moveWorkspaceFile({
     : `File moved: ${formatRelativePath(source.relativePath)} -> ${formatRelativePath(
         destination.relativePath,
       )}`;
+}
+
+function validateSourceFile(
+  sourceEntry: Stats | null,
+  sourcePath: string,
+): string | null {
+  if (!sourceEntry) {
+    return `Source file does not exist: ${sourcePath}`;
+  }
+
+  if (sourceEntry.isSymbolicLink()) {
+    return `Refusing to move symlink: ${sourcePath}`;
+  }
+
+  if (sourceEntry.isDirectory()) {
+    return `Source path is a directory, not a file: ${sourcePath}`;
+  }
+
+  return sourceEntry.isFile()
+    ? null
+    : `Source path exists but is not a regular file: ${sourcePath}`;
+}
+
+function validateDestinationFile({
+  destinationEntry,
+  destinationPath,
+  overwrite,
+}: {
+  destinationEntry: Stats | null;
+  destinationPath: string;
+  overwrite: boolean;
+}): string | null {
+  if (!destinationEntry) {
+    return null;
+  }
+
+  if (destinationEntry.isSymbolicLink()) {
+    return `Refusing to overwrite symlink: ${destinationPath}`;
+  }
+
+  if (destinationEntry.isDirectory()) {
+    return `Destination path is a directory, not a file: ${destinationPath}`;
+  }
+
+  if (!destinationEntry.isFile()) {
+    return `Destination path exists but is not a regular file: ${destinationPath}`;
+  }
+
+  return overwrite
+    ? null
+    : `Destination file already exists: ${destinationPath}. Use overwrite: true to replace it.`;
 }
 
 async function ensureSafeDestinationParentDirectory({

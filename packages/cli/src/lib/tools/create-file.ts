@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -102,22 +103,14 @@ async function createWorkspaceFile({
 
   const existing = await fs.lstat(absolutePath).catch(() => null);
 
-  if (existing) {
-    if (existing.isSymbolicLink()) {
-      return `Refusing to write through symlink: ${formattedPath}`;
-    }
+  const existingCheck = validateExistingFile({
+    existing,
+    formattedPath,
+    overwrite,
+  });
 
-    if (existing.isDirectory()) {
-      return `Path is a directory, not a file: ${formattedPath}`;
-    }
-
-    if (!existing.isFile()) {
-      return `Path exists but is not a regular file: ${formattedPath}`;
-    }
-
-    if (!overwrite) {
-      return `File already exists: ${formattedPath}. Use overwrite: true to replace it.`;
-    }
+  if (existingCheck) {
+    return existingCheck;
   }
 
   try {
@@ -138,6 +131,36 @@ async function createWorkspaceFile({
   return existing
     ? `File overwritten: ${formattedPath} (${contentBytes} bytes, ${lineCount} lines).`
     : `File created: ${formattedPath} (${contentBytes} bytes, ${lineCount} lines).`;
+}
+
+function validateExistingFile({
+  existing,
+  formattedPath,
+  overwrite,
+}: {
+  existing: Stats | null;
+  formattedPath: string;
+  overwrite: boolean;
+}): string | null {
+  if (!existing) {
+    return null;
+  }
+
+  if (existing.isSymbolicLink()) {
+    return `Refusing to write through symlink: ${formattedPath}`;
+  }
+
+  if (existing.isDirectory()) {
+    return `Path is a directory, not a file: ${formattedPath}`;
+  }
+
+  if (!existing.isFile()) {
+    return `Path exists but is not a regular file: ${formattedPath}`;
+  }
+
+  return overwrite
+    ? null
+    : `File already exists: ${formattedPath}. Use overwrite: true to replace it.`;
 }
 
 async function ensureSafeParentDirectory({

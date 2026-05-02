@@ -227,66 +227,92 @@ async function walkDirectory({
   dirents.sort(compareDirents);
 
   for (const dirent of dirents) {
-    if (entries.length >= maxEntries) {
-      onTruncated();
+    const shouldContinue = await walkDirectoryEntry({
+      dirent,
+      realWorkspaceRoot,
+      absoluteDirectoryPath,
+      relativeDirectoryPath,
+      remainingDepth,
+      includeHidden,
+      includeCommonIgnored,
+      maxEntries,
+      entries,
+      onTruncated,
+    });
+
+    if (!shouldContinue) {
       return;
     }
-
-    if (!includeHidden && dirent.name.startsWith(".")) {
-      continue;
-    }
-
-    const absoluteEntryPath = path.join(absoluteDirectoryPath, dirent.name);
-    const relativeEntryPath = path.join(relativeDirectoryPath, dirent.name);
-    const formattedEntryPath = formatRelativePath(relativeEntryPath);
-
-    if (dirent.isSymbolicLink()) {
-      entries.push(`${formattedEntryPath}@`);
-      continue;
-    }
-
-    if (dirent.isDirectory()) {
-      if (
-        !includeCommonIgnored &&
-        DEFAULT_EXCLUDED_DIRECTORIES.has(dirent.name)
-      ) {
-        entries.push(`${formattedEntryPath}/ [omitted]`);
-        continue;
-      }
-
-      const directoryStillSafe = await isSafeRealDirectory({
-        realWorkspaceRoot,
-        absoluteDirectoryPath: absoluteEntryPath,
-      });
-
-      if (!directoryStillSafe.ok) {
-        entries.push(
-          `${formattedEntryPath}/ [Skipped: ${directoryStillSafe.error}]`,
-        );
-        continue;
-      }
-
-      entries.push(`${formattedEntryPath}/`);
-
-      if (remainingDepth > 0) {
-        await walkDirectory({
-          realWorkspaceRoot,
-          absoluteDirectoryPath: absoluteEntryPath,
-          relativeDirectoryPath: relativeEntryPath,
-          remainingDepth: remainingDepth - 1,
-          includeHidden,
-          includeCommonIgnored,
-          maxEntries,
-          entries,
-          onTruncated,
-        });
-      }
-
-      continue;
-    }
-
-    entries.push(formattedEntryPath);
   }
+}
+
+async function walkDirectoryEntry({
+  dirent,
+  realWorkspaceRoot,
+  absoluteDirectoryPath,
+  relativeDirectoryPath,
+  remainingDepth,
+  includeHidden,
+  includeCommonIgnored,
+  maxEntries,
+  entries,
+  onTruncated,
+}: WalkDirectoryOptions & { dirent: Dirent }): Promise<boolean> {
+  if (entries.length >= maxEntries) {
+    onTruncated();
+    return false;
+  }
+
+  if (!includeHidden && dirent.name.startsWith(".")) {
+    return true;
+  }
+
+  const absoluteEntryPath = path.join(absoluteDirectoryPath, dirent.name);
+  const relativeEntryPath = path.join(relativeDirectoryPath, dirent.name);
+  const formattedEntryPath = formatRelativePath(relativeEntryPath);
+
+  if (dirent.isSymbolicLink()) {
+    entries.push(`${formattedEntryPath}@`);
+    return true;
+  }
+
+  if (!dirent.isDirectory()) {
+    entries.push(formattedEntryPath);
+    return true;
+  }
+
+  if (!includeCommonIgnored && DEFAULT_EXCLUDED_DIRECTORIES.has(dirent.name)) {
+    entries.push(`${formattedEntryPath}/ [omitted]`);
+    return true;
+  }
+
+  const directoryStillSafe = await isSafeRealDirectory({
+    realWorkspaceRoot,
+    absoluteDirectoryPath: absoluteEntryPath,
+  });
+
+  if (!directoryStillSafe.ok) {
+    entries.push(`${formattedEntryPath}/ [Skipped: ${directoryStillSafe.error}]`);
+    return true;
+  }
+
+  entries.push(`${formattedEntryPath}/`);
+
+  if (remainingDepth > 0) {
+    await walkDirectory({
+      realWorkspaceRoot,
+      absoluteDirectoryPath: absoluteEntryPath,
+      relativeDirectoryPath: relativeEntryPath,
+      remainingDepth: remainingDepth - 1,
+      includeHidden,
+      includeCommonIgnored,
+      maxEntries,
+      entries,
+      onTruncated,
+    });
+  }
+
+  return true;
 }
 
 function compareDirents(a: Dirent, b: Dirent): number {
