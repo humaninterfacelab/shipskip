@@ -36,7 +36,6 @@ jobs:
       SHIPSKIP_MODEL: ${{ inputs.model }}
 
       SHIPSKIP_SESSION_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
-      SHIPSKIP_SESSION_PATH: ${{ runner.temp }}/shipskip-session
       SHIPSKIP_ARTIFACT_TAG: shipskip-artifacts/${{ github.run_id }}-${{ github.run_attempt }}
       SHIPSKIP_SUBMISSION_PATH: submissions/${{ inputs.task }}/${{ inputs.template }}/${{ github.actor }}/${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -55,6 +54,13 @@ jobs:
             echo "::error::Run this workflow from a submission branch, not $DEFAULT_BRANCH."
             exit 1
           fi
+
+      - name: Prepare session path
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "SHIPSKIP_SESSION_PATH=$RUNNER_TEMP/shipskip-session" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
