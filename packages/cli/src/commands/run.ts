@@ -1,12 +1,16 @@
-import { cp, mkdtemp, readFile } from "node:fs/promises";
-import os from "node:os";
+import { cp, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { stepCountIs, ToolLoopAgent } from "ai";
 import { Command } from "commander";
 
-import { logger } from "../lib/logger";
+import { createLogger } from "../lib/logger";
 import { getModel, parseModelProfile } from "../lib/model";
+import {
+  createSession,
+  formatSessionArtifacts,
+  type Session,
+} from "../lib/session";
 import { createApplyPatchTool } from "../lib/tools/apply-patch";
 import { createCreateFileTool } from "../lib/tools/create-file";
 import { createDeleteFileTool } from "../lib/tools/delete-file";
@@ -31,13 +35,18 @@ type RunOptions = {
 };
 
 const runAction = async function (options: RunOptions) {
+  let session: Session | undefined;
+  let logger: ReturnType<typeof createLogger> | undefined;
+
   try {
-    logger.info("Running task...");
+    session = await createSession();
+    logger = createLogger(session.logPath);
+    logger.info({ session }, "Running task");
 
     const templatePath = path.resolve(options.template);
 
     logger.info("Creating temporary workspace for the agent...");
-    const workspacePath = await mkdtemp(path.join(os.tmpdir(), "shipskip-agent-"));
+    const workspacePath = session.workspacePath;
     await cp(templatePath, workspacePath, {
       recursive: true,
     });
@@ -132,9 +141,17 @@ const runAction = async function (options: RunOptions) {
 
     process.stdout.write("\n");
   } catch (error) {
-    logger.error(error);
+    if (logger) {
+      logger.error(error);
+    } else {
+      console.error(error);
+    }
 
     process.exitCode = 1;
+  } finally {
+    if (session) {
+      process.stdout.write(`${formatSessionArtifacts(session)}\n`);
+    }
   }
 };
 
