@@ -1,0 +1,213 @@
+name: Submit shipskip artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task name under tasks/<task>/<template>
+        required: true
+        default: saas-landing-page
+      template:
+        description: Template name under templates/<template>
+        required: true
+        default: nextjs
+      model:
+        description: Model profile, for example openai/gpt-5.5#high
+        required: true
+        default: openai/gpt-5.5#high
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    name: Generate submission
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+      SHIPSKIP_TASK: ${{ inputs.task }}
+      SHIPSKIP_TEMPLATE: ${{ inputs.template }}
+      SHIPSKIP_MODEL: ${{ inputs.model }}
+
+      SHIPSKIP_SESSION_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
+      SHIPSKIP_SESSION_PATH: ${{ runner.temp }}/shipskip-session
+      SHIPSKIP_ARTIFACT_TAG: shipskip-artifacts/${{ github.run_id }}-${{ github.run_attempt }}
+      SHIPSKIP_SUBMISSION_PATH: submissions/${{ inputs.task }}/${{ inputs.template }}/${{ github.actor }}/${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate submission branch
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            echo "::error::Run this workflow from a submission branch, not $DEFAULT_BRANCH."
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build CLI
+        run: bun --filter '@shipskip/cli' build
+
+      - name: Run CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          task_path="tasks/$SHIPSKIP_TASK/$SHIPSKIP_TEMPLATE"
+          template_path="templates/$SHIPSKIP_TEMPLATE"
+
+          bun packages/cli/dist/index.js run \
+            --instructions "$task_path/instructions.md" \
+            --prompt "$task_path/prompt.md" \
+            --template "$template_path" \
+            --model "$SHIPSKIP_MODEL"
+
+      - name: Build generated artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          task_path="tasks/$SHIPSKIP_TASK/$SHIPSKIP_TEMPLATE"
+
+          bash "$GITHUB_WORKSPACE/$task_path/build.sh" \
+            "$SHIPSKIP_SESSION_PATH/workspace" \
+            "$SHIPSKIP_SESSION_PATH/build-output"
+
+          test -d "$SHIPSKIP_SESSION_PATH/build-output"
+          test -f "$SHIPSKIP_SESSION_PATH/session.log"
+
+      - name: Push artifact tag
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_AUTHOR_NAME: ${{ github.actor }}
+          GIT_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+        run: |
+          set -euo pipefail
+
+          artifact_repo_path="$RUNNER_TEMP/shipskip-artifact-repo"
+
+          rm -rf "$artifact_repo_path"
+          mkdir -p "$artifact_repo_path"
+
+          git init "$artifact_repo_path"
+
+          cp -a "$SHIPSKIP_SESSION_PATH/build-output" "$artifact_repo_path/build-output"
+          cp "$SHIPSKIP_SESSION_PATH/session.log" "$artifact_repo_path/session.log"
+
+          git -C "$artifact_repo_path" add -A
+          git -C "$artifact_repo_path" \
+            -c user.name="$GIT_AUTHOR_NAME" \
+            -c user.email="$GIT_AUTHOR_EMAIL" \
+            commit -m "Submit shipskip artifact $SHIPSKIP_SESSION_ID"
+
+          artifact_commit_sha="$(git -C "$artifact_repo_path" rev-parse HEAD)"
+
+          git -C "$artifact_repo_path" remote add origin "https://x-access-token:$GITHUB_TOKEN@github.com/${{ github.repository }}.git"
+          git -C "$artifact_repo_path" tag "$SHIPSKIP_ARTIFACT_TAG" "$artifact_commit_sha"
+          git -C "$artifact_repo_path" push origin "refs/tags/$SHIPSKIP_ARTIFACT_TAG"
+
+          echo "SHIPSKIP_ARTIFACT_COMMIT_SHA=$artifact_commit_sha" >> "$GITHUB_ENV"
+
+      - name: Write submission files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$SHIPSKIP_SUBMISSION_PATH"
+
+          jq -n \
+            --arg task "$SHIPSKIP_TASK" \
+            --arg template "$SHIPSKIP_TEMPLATE" \
+            --arg model "$SHIPSKIP_MODEL" \
+            --arg submittedBy "${{ github.actor }}" \
+            --arg sourceRepo "${{ github.repository }}" \
+            --arg sourceHeadSha "${{ github.sha }}" \
+            --arg submissionRunId "${{ github.run_id }}" \
+            --arg submissionRunAttempt "${{ github.run_attempt }}" \
+            --arg artifactRepo "${{ github.repository }}" \
+            --arg artifactTag "$SHIPSKIP_ARTIFACT_TAG" \
+            --arg artifactCommitSha "$SHIPSKIP_ARTIFACT_COMMIT_SHA" \
+            --arg r2Key "$SHIPSKIP_SUBMISSION_PATH" \
+            '{
+              task: $task,
+              template: $template,
+              model: $model,
+              submittedBy: $submittedBy,
+              sourceRepo: $sourceRepo,
+              sourceHeadSha: $sourceHeadSha,
+              submissionRunId: $submissionRunId,
+              submissionRunAttempt: $submissionRunAttempt,
+              artifactRepo: $artifactRepo,
+              artifactTag: $artifactTag,
+              artifactCommitSha: $artifactCommitSha,
+              r2Key: $r2Key
+            }' > "$SHIPSKIP_SUBMISSION_PATH/manifest.json"
+
+          cat > "$SHIPSKIP_SUBMISSION_PATH/summary.md" <<EOF
+          # shipskip submission
+
+          - Task: \`$SHIPSKIP_TASK\`
+          - Template: \`$SHIPSKIP_TEMPLATE\`
+          - Model: \`$SHIPSKIP_MODEL\`
+          - Submitted by: \`${{ github.actor }}\`
+          - Artifact repo: \`${{ github.repository }}\`
+          - Artifact tag: \`$SHIPSKIP_ARTIFACT_TAG\`
+          - Artifact commit: \`$SHIPSKIP_ARTIFACT_COMMIT_SHA\`
+          - R2 key: \`$SHIPSKIP_SUBMISSION_PATH\`
+          EOF
+
+      - name: Commit submission files
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: ${{ github.actor }}
+          GIT_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+        run: |
+          set -euo pipefail
+
+          git add "$SHIPSKIP_SUBMISSION_PATH"
+
+          git -c user.name="$GIT_AUTHOR_NAME" \
+              -c user.email="$GIT_AUTHOR_EMAIL" \
+              commit -m "Add shipskip submission $SHIPSKIP_TASK/$SHIPSKIP_TEMPLATE"
+
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Write run summary
+        shell: bash
+        run: |
+          {
+            echo "## shipskip submission"
+            echo ""
+            echo "Committed submission files to \`$SHIPSKIP_SUBMISSION_PATH\`."
+            echo ""
+            echo "- Artifact tag: \`$SHIPSKIP_ARTIFACT_TAG\`"
+            echo "- Artifact commit: \`$SHIPSKIP_ARTIFACT_COMMIT_SHA\`"
+            echo ""
+            echo "Open a pull request with these submission files."
+            echo ""
+            echo "Maintainers should publish using:"
+            echo ""
+            echo "- Pull request: PR number"
+            echo "- Submission SHA: \`$(git rev-parse HEAD)\`"
+            echo "- Submission path: \`$SHIPSKIP_SUBMISSION_PATH\`"
+          } >> "$GITHUB_STEP_SUMMARY"
