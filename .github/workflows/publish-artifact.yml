@@ -1,0 +1,230 @@
+name: Publish shipskip artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number containing the reviewed submission
+        required: true
+      submission_sha:
+        description: Exact PR commit SHA that was reviewed
+        required: true
+      submission_path:
+        description: Path to the submission directory in the reviewed PR commit
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Verify and publish artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: artifact-publish
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.CLOUDFLARE_R2_BUCKET }}
+
+      PR_NUMBER: ${{ inputs.pull_request }}
+      SUBMISSION_SHA: ${{ inputs.submission_sha }}
+      SUBMISSION_PATH: ${{ inputs.submission_path }}
+
+    steps:
+      - name: Validate publish inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          die() {
+            echo "::error::$*"
+            exit 1
+          }
+
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || die "Invalid pull request number"
+          [[ "$SUBMISSION_SHA" =~ ^[0-9a-f]{40}$ ]] || die "Invalid submission SHA"
+          [[ "$SUBMISSION_PATH" =~ ^submissions/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9-]+/[0-9]+-[0-9]+$ ]] || die "Invalid submission path"
+
+      - name: Checkout reviewed PR commit
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ inputs.pull_request }}/head
+          persist-credentials: false
+
+      - name: Verify reviewed commit SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          actual_sha="$(git rev-parse HEAD)"
+
+          if [ "$actual_sha" != "$SUBMISSION_SHA" ]; then
+            echo "::error::PR head changed after review. Expected $SUBMISSION_SHA, got $actual_sha."
+            exit 1
+          fi
+
+      - name: Read manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          die() {
+            echo "::error::$*"
+            exit 1
+          }
+
+          manifest_path="$SUBMISSION_PATH/manifest.json"
+
+          test -f "$manifest_path" || die "Manifest not found: $manifest_path"
+
+          artifact_repo="$(jq -r '.artifactRepo' "$manifest_path")"
+          artifact_tag="$(jq -r '.artifactTag' "$manifest_path")"
+          artifact_commit_sha="$(jq -r '.artifactCommitSha' "$manifest_path")"
+          r2_key="$(jq -r '.r2Key' "$manifest_path")"
+
+          [[ "$artifact_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "Invalid artifactRepo"
+          [[ "$artifact_tag" =~ ^shipskip-artifacts/[0-9]+-[0-9]+$ ]] || die "Invalid artifactTag"
+          [[ "$artifact_commit_sha" =~ ^[0-9a-f]{40}$ ]] || die "Invalid artifactCommitSha"
+          [[ "$r2_key" == "$SUBMISSION_PATH" ]] || die "Manifest r2Key must match submission_path"
+
+          {
+            echo "SHIPSKIP_MANIFEST_PATH=$manifest_path"
+            echo "SHIPSKIP_ARTIFACT_REPO=$artifact_repo"
+            echo "SHIPSKIP_ARTIFACT_TAG=$artifact_tag"
+            echo "SHIPSKIP_ARTIFACT_COMMIT_SHA=$artifact_commit_sha"
+            echo "SHIPSKIP_R2_KEY=$r2_key"
+          } >> "$GITHUB_ENV"
+
+      - name: Fetch artifact tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact_path="$RUNNER_TEMP/shipskip-artifact"
+
+          rm -rf "$artifact_path"
+
+          git init "$artifact_path"
+          git -C "$artifact_path" remote add origin "https://github.com/$SHIPSKIP_ARTIFACT_REPO.git"
+          git -C "$artifact_path" fetch --depth=1 origin "refs/tags/$SHIPSKIP_ARTIFACT_TAG"
+
+          fetched_sha="$(git -C "$artifact_path" rev-parse FETCH_HEAD^{commit})"
+
+          if [ "$fetched_sha" != "$SHIPSKIP_ARTIFACT_COMMIT_SHA" ]; then
+            echo "::error::Artifact tag changed. Expected $SHIPSKIP_ARTIFACT_COMMIT_SHA, got $fetched_sha."
+            exit 1
+          fi
+
+          git -C "$artifact_path" checkout --detach FETCH_HEAD
+
+          echo "SHIPSKIP_ARTIFACT_PATH=$artifact_path" >> "$GITHUB_ENV"
+
+      - name: Compute artifact digests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -d "$SHIPSKIP_ARTIFACT_PATH/build-output" || {
+            echo "::error::Artifact is missing build-output/"
+            exit 1
+          }
+
+          test -f "$SHIPSKIP_ARTIFACT_PATH/session.log" || {
+            echo "::error::Artifact is missing session.log"
+            exit 1
+          }
+
+          if ! find "$SHIPSKIP_ARTIFACT_PATH/build-output" -type f -print -quit | grep -q .; then
+            echo "::error::Artifact build-output/ is empty"
+            exit 1
+          fi
+
+          digest_file="$SHIPSKIP_ARTIFACT_PATH/build-output.sha256sum"
+
+          (
+            cd "$SHIPSKIP_ARTIFACT_PATH/build-output"
+            find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) > "$digest_file"
+
+          build_digest="$(sha256sum "$digest_file" | cut -d ' ' -f 1)"
+          log_digest="$(sha256sum "$SHIPSKIP_ARTIFACT_PATH/session.log" | cut -d ' ' -f 1)"
+
+          {
+            echo "SHIPSKIP_DIGEST_FILE=$digest_file"
+            echo "SHIPSKIP_BUILD_DIGEST=$build_digest"
+            echo "SHIPSKIP_LOG_DIGEST=$log_digest"
+          } >> "$GITHUB_ENV"
+
+      - name: Publish to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${R2_ACCOUNT_ID:?Missing R2_ACCOUNT_ID}"
+          : "${R2_BUCKET:?Missing R2_BUCKET}"
+
+          endpoint_url="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+          publish_manifest="$RUNNER_TEMP/shipskip-publish-manifest.json"
+
+          jq \
+            --arg publishedBy "${{ github.actor }}" \
+            --arg publishRunId "${{ github.run_id }}" \
+            --arg sourcePullRequest "$PR_NUMBER" \
+            --arg sourceSubmissionSha "$SUBMISSION_SHA" \
+            --arg buildDigest "sha256:$SHIPSKIP_BUILD_DIGEST" \
+            --arg logDigest "sha256:$SHIPSKIP_LOG_DIGEST" \
+            '. + {
+              publishedBy: $publishedBy,
+              publishRunId: $publishRunId,
+              sourcePullRequest: $sourcePullRequest,
+              sourceSubmissionSha: $sourceSubmissionSha,
+              buildDigest: $buildDigest,
+              logDigest: $logDigest
+            }' \
+            "$SHIPSKIP_MANIFEST_PATH" > "$publish_manifest"
+
+          aws s3 sync \
+            "$SHIPSKIP_ARTIFACT_PATH/build-output" \
+            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/site" \
+            --endpoint-url "$endpoint_url" \
+            --delete \
+            --only-show-errors
+
+          aws s3 cp \
+            "$SHIPSKIP_ARTIFACT_PATH/session.log" \
+            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/session.log" \
+            --endpoint-url "$endpoint_url" \
+            --only-show-errors
+
+          aws s3 cp \
+            "$SHIPSKIP_DIGEST_FILE" \
+            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/build-output.sha256sum" \
+            --endpoint-url "$endpoint_url" \
+            --only-show-errors
+
+          aws s3 cp \
+            "$publish_manifest" \
+            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/manifest.json" \
+            --endpoint-url "$endpoint_url" \
+            --only-show-errors
+
+      - name: Write run summary
+        shell: bash
+        run: |
+          {
+            echo "## shipskip artifact published"
+            echo ""
+            echo "- Pull request: \`#$PR_NUMBER\`"
+            echo "- Submission SHA: \`$SUBMISSION_SHA\`"
+            echo "- Submission path: \`$SUBMISSION_PATH\`"
+            echo "- Artifact repo: \`$SHIPSKIP_ARTIFACT_REPO\`"
+            echo "- Artifact tag: \`$SHIPSKIP_ARTIFACT_TAG\`"
+            echo "- Artifact commit: \`$SHIPSKIP_ARTIFACT_COMMIT_SHA\`"
+            echo "- R2 key: \`$SHIPSKIP_R2_KEY\`"
+            echo "- Build digest: \`sha256:$SHIPSKIP_BUILD_DIGEST\`"
+            echo "- Log digest: \`sha256:$SHIPSKIP_LOG_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
