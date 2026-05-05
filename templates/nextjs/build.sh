@@ -3,7 +3,7 @@ set -euo pipefail
 
 output_path="${1:?output path required}"
 
-npm ci
+npm i
 npm run build
 
 mkdir -p "$output_path"
