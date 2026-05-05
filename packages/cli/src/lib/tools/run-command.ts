@@ -47,6 +47,7 @@ This is not a shell. Do not use shell syntax such as:
 - pipes: npm run build | head
 - redirects: npm run build 2>&1
 - command chaining: npm run lint && npm run build
+- multiple lines: npm run lint\\nnpm run build
 - directory changes: cd app && npm run build
 - background jobs: npm run dev &
 - command substitution: echo $(pwd)
@@ -98,7 +99,7 @@ async function executeScript(
 ): Promise<ExecuteProcessResult> {
   assertSafeWorkspaceRoot(workspaceRoot, "execute commands");
 
-  const normalizedScript = normalizeScript(script);
+  const normalizedScript = script.trim();
 
   assertNoShellSyntax(normalizedScript);
 
@@ -123,11 +124,19 @@ Long-running commands such as dev servers should use a dedicated server/preview 
   });
 }
 
-function normalizeScript(script: string): string {
-  return script.trim();
-}
-
 function assertNoShellSyntax(script: string) {
+  if (/\r|\n/.test(script)) {
+    throw new Error(
+      `Shell syntax is not supported by runCommand. Found multiple lines.
+
+Use a single plain package-manager command only, for example:
+- npm run build
+- npm run lint
+- npm test
+- npm install`,
+    );
+  }
+
   const found = UNSUPPORTED_SHELL_SYNTAX.find((token) =>
     script.includes(token),
   );
