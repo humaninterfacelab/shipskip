@@ -125,7 +125,6 @@ jobs:
           - Submitted by: \`${{ github.actor }}\`
           - Source path: \`$source_path\`
           - Log path: \`$SHIPSKIP_SUBMISSION_PATH/session.log\`
-          - R2 key: \`$SHIPSKIP_SUBMISSION_PATH\`
 
           Maintainers should publish this PR and then close it without merging.
           EOF

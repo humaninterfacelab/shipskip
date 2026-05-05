@@ -65,7 +65,6 @@ jobs:
           manifest_path="$SUBMISSION_PATH/manifest.json"
           source_path="$SUBMISSION_PATH/source"
           log_path="$SUBMISSION_PATH/session.log"
-          r2_key="$SUBMISSION_PATH"
 
           test -f "$manifest_path" || {
             echo "::error::Manifest not found: $manifest_path"
@@ -92,7 +91,7 @@ jobs:
             echo "SHIPSKIP_MANIFEST_PATH=$manifest_path"
             echo "SHIPSKIP_SOURCE_PATH=$source_path"
             echo "SHIPSKIP_LOG_PATH=$log_path"
-            echo "SHIPSKIP_R2_KEY=$r2_key"
+            echo "SHIPSKIP_R2_KEY=$SUBMISSION_PATH"
           } >> "$GITHUB_ENV"
 
       - name: Build reviewed source
@@ -175,9 +174,6 @@ jobs:
             --arg publishRunId "${{ github.run_id }}" \
             --arg sourcePullRequest "$PR_NUMBER" \
             --arg sourceSubmissionSha "$SUBMISSION_SHA" \
-            --arg r2Key "$SHIPSKIP_R2_KEY" \
-            --arg sourcePath "$SHIPSKIP_SOURCE_PATH" \
-            --arg logPath "$SHIPSKIP_LOG_PATH" \
             --arg buildDigest "sha256:$SHIPSKIP_BUILD_DIGEST" \
             --arg sourceDigest "sha256:$SHIPSKIP_SOURCE_DIGEST" \
             --arg logDigest "sha256:$SHIPSKIP_LOG_DIGEST" \
@@ -186,9 +182,6 @@ jobs:
               publishRunId: $publishRunId,
               sourcePullRequest: $sourcePullRequest,
               sourceSubmissionSha: $sourceSubmissionSha,
-              r2Key: $r2Key,
-              sourcePath: $sourcePath,
-              logPath: $logPath,
               buildDigest: $buildDigest,
               sourceDigest: $sourceDigest,
               logDigest: $logDigest
@@ -288,7 +281,6 @@ jobs:
             echo "- Submission path: \`$SHIPSKIP_SUBMISSION_PATH\`"
             echo "- Source path: \`$SHIPSKIP_SOURCE_PATH\`"
             echo "- Log path: \`$SHIPSKIP_LOG_PATH\`"
-            echo "- R2 key: \`$SHIPSKIP_R2_KEY\`"
             echo "- Credit record: \`$SHIPSKIP_CREDIT_PATH\`"
             echo "- Build digest: \`sha256:$SHIPSKIP_BUILD_DIGEST\`"
             echo "- Source digest: \`sha256:$SHIPSKIP_SOURCE_DIGEST\`"
