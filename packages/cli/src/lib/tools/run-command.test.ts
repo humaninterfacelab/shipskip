@@ -31,37 +31,34 @@ describe("runCommand", () => {
     expect(output.trim()).toBe("hello world");
   });
 
-  test("rejects shell syntax", async () => {
-    const workspaceRoot = await makePackageWorkspace();
+  for (const { name, script, error } of [
+    {
+      name: "shell syntax",
+      script: "bun test && bun build",
+      error: "Shell syntax is not supported by runCommand",
+    },
+    {
+      name: "multiple lines",
+      script: "bun test\nbun build",
+      error: "Found multiple lines",
+    },
+    {
+      name: "environment-variable assignment",
+      script: "CI=1 bun test",
+      error: "Environment-variable assignment is not supported",
+    },
+    {
+      name: "non-package-manager commands",
+      script: "node --version",
+      error: "Command not allowed: node",
+    },
+  ]) {
+    test(`rejects ${name}`, async () => {
+      const workspaceRoot = await makePackageWorkspace();
 
-    await expect(runCommand(workspaceRoot, "bun test && bun build")).rejects.toThrow(
-      "Shell syntax is not supported by runCommand",
-    );
-  });
-
-  test("rejects multiple lines", async () => {
-    const workspaceRoot = await makePackageWorkspace();
-
-    await expect(runCommand(workspaceRoot, "bun test\nbun build")).rejects.toThrow(
-      "Found multiple lines",
-    );
-  });
-
-  test("rejects environment-variable assignment", async () => {
-    const workspaceRoot = await makePackageWorkspace();
-
-    await expect(runCommand(workspaceRoot, "CI=1 bun test")).rejects.toThrow(
-      "Environment-variable assignment is not supported",
-    );
-  });
-
-  test("rejects non-package-manager commands", async () => {
-    const workspaceRoot = await makePackageWorkspace();
-
-    await expect(runCommand(workspaceRoot, "node --version")).rejects.toThrow(
-      "Command not allowed: node",
-    );
-  });
+      await expect(runCommand(workspaceRoot, script)).rejects.toThrow(error);
+    });
+  }
 });
 
 async function runCommand(workspaceRoot: string, script: string) {
