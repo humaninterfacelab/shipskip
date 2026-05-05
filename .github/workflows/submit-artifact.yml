@@ -14,7 +14,7 @@ on:
       model:
         description: Model profile, for example openai/gpt-5.5#high
         required: true
-        default: openai/gpt-5.5#high
+        default: google/gemini-3.1-flash-lite-preview#low
 
 permissions:
   contents: write
@@ -23,7 +23,7 @@ jobs:
   generate:
     name: Generate submission
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -82,8 +82,7 @@ jobs:
 
           task_path="tasks/$SHIPSKIP_TASK/$SHIPSKIP_TEMPLATE"
 
-          bash "$GITHUB_WORKSPACE/$task_path/build.sh" \
-            "$SHIPSKIP_SESSION_PATH/workspace" \
+          bash "$SHIPSKIP_SESSION_PATH/workspace/build.sh" \
             "$SHIPSKIP_SESSION_PATH/build-output"
 
 
@@ -201,5 +200,4 @@ jobs:
             echo ""
             echo "- Pull request: PR number"
             echo "- Submission SHA: \`$(git rev-parse HEAD)\`"
-            echo "- Submission path: \`$SHIPSKIP_SUBMISSION_PATH\`"
           } >> "$GITHUB_STEP_SUMMARY"
