@@ -9,7 +9,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:cli": "bun --filter '@shipskip/cli' dev",
+    "dev:cli": "bun packages/cli/src/index.ts",
     "lint": "bun --filter '*' lint",
     "test": "bun --filter '*' test",
     "coverage": "bun --filter '*' test --coverage",

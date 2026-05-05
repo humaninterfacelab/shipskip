@@ -10,11 +10,11 @@ on:
         description: Exact PR commit SHA that was reviewed
         required: true
       submission_path:
-        description: Path to the submission directory in the reviewed PR commit
+        description: Path to the reviewed submission directory, for example submissions/task/template/user/run-attempt
         required: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -35,22 +35,8 @@ jobs:
       SUBMISSION_PATH: ${{ inputs.submission_path }}
 
     steps:
-      - name: Validate publish inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          die() {
-            echo "::error::$*"
-            exit 1
-          }
-
-          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || die "Invalid pull request number"
-          [[ "$SUBMISSION_SHA" =~ ^[0-9a-f]{40}$ ]] || die "Invalid submission SHA"
-          [[ "$SUBMISSION_PATH" =~ ^submissions/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9-]+/[0-9]+-[0-9]+$ ]] || die "Invalid submission path"
-
       - name: Checkout reviewed PR commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: refs/pull/${{ inputs.pull_request }}/head
           persist-credentials: false
@@ -72,26 +58,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          die() {
-            echo "::error::$*"
-            exit 1
-          }
-
           manifest_path="$SUBMISSION_PATH/manifest.json"
 
-          test -f "$manifest_path" || die "Manifest not found: $manifest_path"
+          test -f "$manifest_path" || {
+            echo "::error::Manifest not found: $manifest_path"
+            exit 1
+          }
 
           artifact_repo="$(jq -r '.artifactRepo' "$manifest_path")"
           artifact_tag="$(jq -r '.artifactTag' "$manifest_path")"
           artifact_commit_sha="$(jq -r '.artifactCommitSha' "$manifest_path")"
           r2_key="$(jq -r '.r2Key' "$manifest_path")"
 
-          [[ "$artifact_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "Invalid artifactRepo"
-          [[ "$artifact_tag" =~ ^shipskip-artifacts/[0-9]+-[0-9]+$ ]] || die "Invalid artifactTag"
-          [[ "$artifact_commit_sha" =~ ^[0-9a-f]{40}$ ]] || die "Invalid artifactCommitSha"
-          [[ "$r2_key" == "$SUBMISSION_PATH" ]] || die "Manifest r2Key must match submission_path"
+          [[ "$r2_key" == "$SUBMISSION_PATH" ]] || {
+            echo "::error::Manifest r2Key must match submission_path."
+            exit 1
+          }
 
           {
+            echo "SHIPSKIP_SUBMISSION_PATH=$SUBMISSION_PATH"
             echo "SHIPSKIP_MANIFEST_PATH=$manifest_path"
             echo "SHIPSKIP_ARTIFACT_REPO=$artifact_repo"
             echo "SHIPSKIP_ARTIFACT_TAG=$artifact_tag"
@@ -212,6 +197,50 @@ jobs:
             --endpoint-url "$endpoint_url" \
             --only-show-errors
 
+          echo "SHIPSKIP_PUBLISH_MANIFEST=$publish_manifest" >> "$GITHUB_ENV"
+
+      - name: Checkout default branch for credit record
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: shipskip-default
+
+      - name: Record publish credit
+        shell: bash
+        working-directory: shipskip-default
+        run: |
+          set -euo pipefail
+
+          submitted_by="$(jq -r '.submittedBy' "$SHIPSKIP_PUBLISH_MANIFEST")"
+          task="$(jq -r '.task' "$SHIPSKIP_PUBLISH_MANIFEST")"
+          template="$(jq -r '.template' "$SHIPSKIP_PUBLISH_MANIFEST")"
+
+          test -n "$submitted_by" && test "$submitted_by" != "null" || {
+            echo "::error::Publish manifest is missing submittedBy."
+            exit 1
+          }
+
+          credit_path="published-submissions/pr-$PR_NUMBER/$SUBMISSION_SHA.json"
+
+          echo "SHIPSKIP_CREDIT_PATH=$credit_path" >> "$GITHUB_ENV"
+
+          mkdir -p "$(dirname "$credit_path")"
+          cp "$SHIPSKIP_PUBLISH_MANIFEST" "$credit_path"
+
+          git add "$credit_path"
+
+          if git diff --cached --quiet; then
+            echo "Publish credit already recorded at $credit_path."
+            exit 0
+          fi
+
+          git \
+            -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Credit shipskip submission $task/$template by $submitted_by"
+
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+
       - name: Write run summary
         shell: bash
         run: |
@@ -220,11 +249,12 @@ jobs:
             echo ""
             echo "- Pull request: \`#$PR_NUMBER\`"
             echo "- Submission SHA: \`$SUBMISSION_SHA\`"
-            echo "- Submission path: \`$SUBMISSION_PATH\`"
+            echo "- Submission path: \`$SHIPSKIP_SUBMISSION_PATH\`"
             echo "- Artifact repo: \`$SHIPSKIP_ARTIFACT_REPO\`"
             echo "- Artifact tag: \`$SHIPSKIP_ARTIFACT_TAG\`"
             echo "- Artifact commit: \`$SHIPSKIP_ARTIFACT_COMMIT_SHA\`"
             echo "- R2 key: \`$SHIPSKIP_R2_KEY\`"
+            echo "- Credit record: \`$SHIPSKIP_CREDIT_PATH\`"
             echo "- Build digest: \`sha256:$SHIPSKIP_BUILD_DIGEST\`"
             echo "- Log digest: \`sha256:$SHIPSKIP_LOG_DIGEST\`"
           } >> "$GITHUB_STEP_SUMMARY"

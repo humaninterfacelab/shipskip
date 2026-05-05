@@ -19,7 +19,7 @@ bun run dev:cli -- run \
   --instructions tasks/saas-landing-page/nextjs/instructions.md \
   --prompt tasks/saas-landing-page/nextjs/prompt.md \
   --template templates/nextjs \
-  --model openai/gpt-5.5#high
+  --model google/gemini-3.1-flash-lite-preview#low
 ```
 
 ## Options
@@ -44,7 +44,7 @@ openrouter/meta-llama/llama-3.1-8b-instruct:free#high
 
 Reasoning support depends on the provider:
 
-- OpenAI: `minimal`, `low`, `medium`, `high`.
+- OpenAI: `minimal`, `low`, `medium`, `high`, `xhigh`.
 - Google: `minimal`, `low`, `medium`, `high`.
 - OpenRouter: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or a positive token count.
 
