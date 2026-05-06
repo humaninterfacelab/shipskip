@@ -115,7 +115,8 @@ export function assertSafeWorkspaceRoot(
 }
 
 export async function initializeWorkspaceGitRepository(workspacePath: string) {
-  await runGit(workspacePath, ["init", "-b", "main"]);
+  await runGit(workspacePath, ["init"]);
+  await runGit(workspacePath, ["checkout", "-B", "main"]);
   await runGit(workspacePath, ["add", "."]);
   await runGit(
     workspacePath,
@@ -134,11 +135,12 @@ async function runGit(
   args: string[],
   env?: NodeJS.ProcessEnv,
 ) {
-  await execFileAsync("git", args, {
+  await execFileAsync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
     cwd: workspacePath,
     env: {
       ...process.env,
       ...env,
     },
+    maxBuffer: 10 * 1024 * 1024,
   });
 }

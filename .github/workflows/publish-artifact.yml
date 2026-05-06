@@ -14,14 +14,13 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish:
-    name: Verify and publish artifact
+  verify-build:
+    name: Verify and build reviewed artifact
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: artifact-publish
 
     env:
       PR_NUMBER: ${{ inputs.pull_request }}
@@ -29,6 +28,26 @@ jobs:
       SUBMISSION_PATH: ${{ inputs.submission_path }}
 
     steps:
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || {
+            echo "::error::pull_request must be a number."
+            exit 1
+          }
+
+          [[ "$SUBMISSION_SHA" =~ ^[a-fA-F0-9]{40}$ ]] || {
+            echo "::error::submission_sha must be a full 40-character Git SHA."
+            exit 1
+          }
+
+          [[ "$SUBMISSION_PATH" =~ ^submissions/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || {
+            echo "::error::submission_path must be submissions/<task>/<template>/<user>/<run-attempt> with safe path segments."
+            exit 1
+          }
+
       - name: Checkout reviewed PR commit
         uses: actions/checkout@v6
         with:
@@ -57,11 +76,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          [[ "$SUBMISSION_PATH" == submissions/* ]] || {
-            echo "::error::submission_path must start with submissions/."
-            exit 1
-          }
-
           manifest_path="$SUBMISSION_PATH/manifest.json"
           source_path="$SUBMISSION_PATH/source"
           log_path="$SUBMISSION_PATH/session.log"
@@ -87,11 +101,9 @@ jobs:
           }
 
           {
-            echo "SHIPSKIP_SUBMISSION_PATH=$SUBMISSION_PATH"
             echo "SHIPSKIP_MANIFEST_PATH=$manifest_path"
             echo "SHIPSKIP_SOURCE_PATH=$source_path"
             echo "SHIPSKIP_LOG_PATH=$log_path"
-            echo "SHIPSKIP_R2_KEY=$SUBMISSION_PATH"
           } >> "$GITHUB_ENV"
 
       - name: Build reviewed source
@@ -106,9 +118,14 @@ jobs:
           rm -rf "$build_output_path"
 
           mkdir -p "$build_source_path"
+          mkdir -p "$RUNNER_TEMP/shipskip-home"
           cp -a "$SHIPSKIP_SOURCE_PATH/." "$build_source_path/"
 
-          bash "$build_source_path/build.sh" "$build_output_path"
+          env -i \
+            HOME="$RUNNER_TEMP/shipskip-home" \
+            PATH="$PATH" \
+            RUNNER_TEMP="$RUNNER_TEMP" \
+            bash "$build_source_path/build.sh" "$build_output_path"
 
           echo "SHIPSKIP_BUILD_OUTPUT_PATH=$build_output_path" >> "$GITHUB_ENV"
 
@@ -152,6 +169,64 @@ jobs:
             echo "SHIPSKIP_LOG_DIGEST=$log_digest"
           } >> "$GITHUB_ENV"
 
+      - name: Package verified artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact_path="$RUNNER_TEMP/shipskip-verified-artifact"
+          rm -rf "$artifact_path"
+          mkdir -p "$artifact_path/source" "$artifact_path/site"
+
+          cp -a "$SHIPSKIP_SOURCE_PATH/." "$artifact_path/source/"
+          cp -a "$SHIPSKIP_BUILD_OUTPUT_PATH/." "$artifact_path/site/"
+          cp "$SHIPSKIP_LOG_PATH" "$artifact_path/session.log"
+          cp "$SHIPSKIP_MANIFEST_PATH" "$artifact_path/manifest.json"
+          cp "$SHIPSKIP_BUILD_DIGEST_FILE" "$artifact_path/build-output.sha256sum"
+          cp "$SHIPSKIP_SOURCE_DIGEST_FILE" "$artifact_path/source.sha256sum"
+
+          jq -n \
+            --arg buildDigest "$SHIPSKIP_BUILD_DIGEST" \
+            --arg sourceDigest "$SHIPSKIP_SOURCE_DIGEST" \
+            --arg logDigest "$SHIPSKIP_LOG_DIGEST" \
+            '{ buildDigest: $buildDigest, sourceDigest: $sourceDigest, logDigest: $logDigest }' \
+            > "$artifact_path/digests.json"
+
+          echo "SHIPSKIP_ARTIFACT_PATH=$artifact_path" >> "$GITHUB_ENV"
+
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipskip-verified-artifact
+          path: ${{ runner.temp }}/shipskip-verified-artifact
+          if-no-files-found: error
+
+  publish:
+    name: Publish verified artifact
+    runs-on: ubuntu-latest
+    needs: verify-build
+    timeout-minutes: 15
+    environment: artifact-publish
+    permissions:
+      contents: write
+
+    env:
+      PR_NUMBER: ${{ inputs.pull_request }}
+      SUBMISSION_SHA: ${{ inputs.submission_sha }}
+      SUBMISSION_PATH: ${{ inputs.submission_path }}
+
+    steps:
+      - name: Checkout default branch for credit record
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Download verified artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shipskip-verified-artifact
+          path: ${{ runner.temp }}/shipskip-verified-artifact
+
       - name: Publish to R2
         shell: bash
         env:
@@ -166,6 +241,17 @@ jobs:
           : "${R2_ACCOUNT_ID:?Missing R2_ACCOUNT_ID}"
           : "${R2_BUCKET:?Missing R2_BUCKET}"
 
+          artifact_path="$RUNNER_TEMP/shipskip-verified-artifact"
+          source_path="$artifact_path/source"
+          site_path="$artifact_path/site"
+          log_path="$artifact_path/session.log"
+          manifest_path="$artifact_path/manifest.json"
+          digests_path="$artifact_path/digests.json"
+
+          build_digest="$(jq -r '.buildDigest' "$digests_path")"
+          source_digest="$(jq -r '.sourceDigest' "$digests_path")"
+          log_digest="$(jq -r '.logDigest' "$digests_path")"
+
           endpoint_url="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
           publish_manifest="$RUNNER_TEMP/shipskip-publish-manifest.json"
 
@@ -174,9 +260,9 @@ jobs:
             --arg publishRunId "${{ github.run_id }}" \
             --arg sourcePullRequest "$PR_NUMBER" \
             --arg sourceSubmissionSha "$SUBMISSION_SHA" \
-            --arg buildDigest "sha256:$SHIPSKIP_BUILD_DIGEST" \
-            --arg sourceDigest "sha256:$SHIPSKIP_SOURCE_DIGEST" \
-            --arg logDigest "sha256:$SHIPSKIP_LOG_DIGEST" \
+            --arg buildDigest "sha256:$build_digest" \
+            --arg sourceDigest "sha256:$source_digest" \
+            --arg logDigest "sha256:$log_digest" \
             '. + {
               publishedBy: $publishedBy,
               publishRunId: $publishRunId,
@@ -186,57 +272,22 @@ jobs:
               sourceDigest: $sourceDigest,
               logDigest: $logDigest
             }' \
-            "$SHIPSKIP_MANIFEST_PATH" > "$publish_manifest"
+            "$manifest_path" > "$publish_manifest"
 
-          aws s3 sync \
-            "$SHIPSKIP_SOURCE_PATH" \
-            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/source" \
-            --endpoint-url "$endpoint_url" \
-            --delete \
-            --only-show-errors
-
-          aws s3 sync \
-            "$SHIPSKIP_BUILD_OUTPUT_PATH" \
-            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/site" \
-            --endpoint-url "$endpoint_url" \
-            --delete \
-            --only-show-errors
-
-          aws s3 cp \
-            "$SHIPSKIP_LOG_PATH" \
-            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/session.log" \
-            --endpoint-url "$endpoint_url" \
-            --only-show-errors
-
-          aws s3 cp \
-            "$SHIPSKIP_BUILD_DIGEST_FILE" \
-            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/build-output.sha256sum" \
-            --endpoint-url "$endpoint_url" \
-            --only-show-errors
-
-          aws s3 cp \
-            "$SHIPSKIP_SOURCE_DIGEST_FILE" \
-            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/source.sha256sum" \
-            --endpoint-url "$endpoint_url" \
-            --only-show-errors
-
-          aws s3 cp \
-            "$publish_manifest" \
-            "s3://$R2_BUCKET/$SHIPSKIP_R2_KEY/manifest.json" \
-            --endpoint-url "$endpoint_url" \
-            --only-show-errors
+          aws s3 sync "$source_path" "s3://$R2_BUCKET/$SUBMISSION_PATH/source" --endpoint-url "$endpoint_url" --delete --only-show-errors
+          aws s3 sync "$site_path" "s3://$R2_BUCKET/$SUBMISSION_PATH/site" --endpoint-url "$endpoint_url" --delete --only-show-errors
+          aws s3 cp "$log_path" "s3://$R2_BUCKET/$SUBMISSION_PATH/session.log" --endpoint-url "$endpoint_url" --only-show-errors
+          aws s3 cp "$artifact_path/build-output.sha256sum" "s3://$R2_BUCKET/$SUBMISSION_PATH/build-output.sha256sum" --endpoint-url "$endpoint_url" --only-show-errors
+          aws s3 cp "$artifact_path/source.sha256sum" "s3://$R2_BUCKET/$SUBMISSION_PATH/source.sha256sum" --endpoint-url "$endpoint_url" --only-show-errors
+          aws s3 cp "$publish_manifest" "s3://$R2_BUCKET/$SUBMISSION_PATH/manifest.json" --endpoint-url "$endpoint_url" --only-show-errors
 
           echo "SHIPSKIP_PUBLISH_MANIFEST=$publish_manifest" >> "$GITHUB_ENV"
-
-      - name: Checkout default branch for credit record
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: shipskip-default
+          echo "SHIPSKIP_BUILD_DIGEST=$build_digest" >> "$GITHUB_ENV"
+          echo "SHIPSKIP_SOURCE_DIGEST=$source_digest" >> "$GITHUB_ENV"
+          echo "SHIPSKIP_LOG_DIGEST=$log_digest" >> "$GITHUB_ENV"
 
       - name: Record publish credit
         shell: bash
-        working-directory: shipskip-default
         run: |
           set -euo pipefail
 
@@ -250,7 +301,6 @@ jobs:
           }
 
           credit_path="published-submissions/pr-$PR_NUMBER/$SUBMISSION_SHA.json"
-
           echo "SHIPSKIP_CREDIT_PATH=$credit_path" >> "$GITHUB_ENV"
 
           mkdir -p "$(dirname "$credit_path")"
@@ -278,9 +328,7 @@ jobs:
             echo ""
             echo "- Pull request: \`#$PR_NUMBER\`"
             echo "- Submission SHA: \`$SUBMISSION_SHA\`"
-            echo "- Submission path: \`$SHIPSKIP_SUBMISSION_PATH\`"
-            echo "- Source path: \`$SHIPSKIP_SOURCE_PATH\`"
-            echo "- Log path: \`$SHIPSKIP_LOG_PATH\`"
+            echo "- Submission path: \`$SUBMISSION_PATH\`"
             echo "- Credit record: \`$SHIPSKIP_CREDIT_PATH\`"
             echo "- Build digest: \`sha256:$SHIPSKIP_BUILD_DIGEST\`"
             echo "- Source digest: \`sha256:$SHIPSKIP_SOURCE_DIGEST\`"

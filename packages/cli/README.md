@@ -44,7 +44,7 @@ openrouter/meta-llama/llama-3.1-8b-instruct:free#high
 
 Reasoning support depends on the provider:
 
-- OpenAI: `minimal`, `low`, `medium`, `high`, `xhigh`.
+- OpenAI: `minimal`, `low`, `medium`, `high`.
 - Google: `minimal`, `low`, `medium`, `high`.
 - OpenRouter: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or a positive token count.
 

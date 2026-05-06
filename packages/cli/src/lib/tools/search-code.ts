@@ -108,14 +108,7 @@ async function searchCode({
   assertSafeWorkspaceRoot(workspaceRoot, "search");
 
   const targetPath = resolveSearchPath(workspaceRoot, searchPath);
-  const args = [
-    "--line-number",
-    "--column",
-    "--color",
-    "never",
-    "--max-count",
-    String(maxMatches),
-  ];
+  const args = ["--line-number", "--column", "--color", "never"];
 
   if (fixedStrings) args.push("--fixed-strings");
   if (caseSensitive) args.push("--case-sensitive");
@@ -125,7 +118,7 @@ async function searchCode({
 
   args.push(query, targetPath);
 
-  return await executeProcess({
+  const result = await executeProcess({
     command: rgPath,
     args,
     cwd: workspaceRoot,
@@ -133,6 +126,29 @@ async function searchCode({
     maxOutputLength: MAX_OUTPUT_LENGTH,
     timeoutMessage: `Search timed out after ${DEFAULT_TIMEOUT_MS}ms`,
   });
+
+  return limitSearchMatches(result, maxMatches);
+}
+
+function limitSearchMatches(
+  result: ExecuteProcessResult,
+  maxMatches: number,
+): ExecuteProcessResult {
+  if (!result.output) {
+    return result;
+  }
+
+  const lines = result.output.split(/\r?\n/).filter(Boolean);
+  const limited = lines.slice(0, maxMatches);
+  const truncatedByCount = lines.length > maxMatches;
+
+  return {
+    ...result,
+    output: `${limited.join("\n")}${
+      truncatedByCount ? `\n\n[Output truncated to ${maxMatches} matches]` : ""
+    }`,
+    truncated: result.truncated,
+  };
 }
 
 function resolveSearchPath(workspaceRoot: string, searchPath?: string) {

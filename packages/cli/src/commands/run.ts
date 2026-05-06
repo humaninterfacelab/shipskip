@@ -1,4 +1,4 @@
-import { cp, readFile } from "node:fs/promises";
+import { cp, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { stepCountIs, ToolLoopAgent } from "ai";
@@ -44,11 +44,17 @@ const runAction = async function (options: RunOptions) {
     logger.info({ session }, "Running task");
 
     const templatePath = path.resolve(options.template);
+    const templateStats = await stat(templatePath);
+
+    if (!templateStats.isDirectory()) {
+      throw new Error(`Template path must be a directory: ${options.template}`);
+    }
 
     logger.info("Creating temporary workspace for the agent...");
     const workspacePath = session.workspacePath;
     await cp(templatePath, workspacePath, {
       recursive: true,
+      filter: (source) => !path.relative(templatePath, source).split(path.sep).includes(".git"),
     });
     await initializeWorkspaceGitRepository(workspacePath);
     logger.info(`Workspace created at: ${workspacePath}`);

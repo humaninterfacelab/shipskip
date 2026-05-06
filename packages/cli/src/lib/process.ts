@@ -11,6 +11,7 @@ type ExecuteProcessOptions = {
   command: string;
   args: string[];
   cwd: string;
+  env?: NodeJS.ProcessEnv;
   timeoutMs: number;
   maxOutputLength: number;
   timeoutMessage: string;
@@ -22,6 +23,7 @@ export async function executeProcess({
   command,
   args,
   cwd,
+  env,
   timeoutMs,
   maxOutputLength,
   timeoutMessage,
@@ -32,6 +34,7 @@ export async function executeProcess({
     const child = spawn(command, args, {
       cwd,
       detached: true,
+      env,
       shell: false,
     });
 
@@ -39,9 +42,31 @@ export async function executeProcess({
     let truncated = false;
     let settled = false;
 
+    const cleanup = () => {
+      if (!settled) {
+        killProcessGroup(child.pid);
+      }
+    };
+
+    const cleanupAndExit = (signal: NodeJS.Signals) => {
+      cleanup();
+      process.kill(process.pid, signal);
+    };
+
+    process.once("exit", cleanup);
+    process.once("SIGINT", cleanupAndExit);
+    process.once("SIGTERM", cleanupAndExit);
+
+    const removeCleanupHandlers = () => {
+      process.off("exit", cleanup);
+      process.off("SIGINT", cleanupAndExit);
+      process.off("SIGTERM", cleanupAndExit);
+    };
+
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
+      removeCleanupHandlers();
       killProcessGroup(child.pid);
       reject(new Error(timeoutMessage));
     }, timeoutMs);
@@ -72,6 +97,7 @@ export async function executeProcess({
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      removeCleanupHandlers();
       reject(error);
     });
 
@@ -79,6 +105,7 @@ export async function executeProcess({
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      removeCleanupHandlers();
       resolve({ code, signal, output, truncated });
     });
   });

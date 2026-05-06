@@ -26,11 +26,6 @@ jobs:
     timeout-minutes: 30
 
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
-      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-
       SHIPSKIP_TASK: ${{ inputs.task }}
       SHIPSKIP_TEMPLATE: ${{ inputs.template }}
       SHIPSKIP_MODEL: ${{ inputs.model }}
@@ -41,6 +36,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          validate_path_segment() {
+            local name="$1"
+            local value="$2"
+
+            [[ "$value" =~ ^[A-Za-z0-9._-]+$ ]] || {
+              echo "::error::$name must contain only letters, numbers, dots, underscores, or hyphens."
+              exit 1
+            }
+
+            [[ "$value" != .* ]] || {
+              echo "::error::$name cannot start with a dot."
+              exit 1
+            }
+          }
+
+          validate_path_segment "task" "$SHIPSKIP_TASK"
+          validate_path_segment "template" "$SHIPSKIP_TEMPLATE"
 
       - name: Prepare session path
         shell: bash
@@ -62,6 +82,11 @@ jobs:
 
       - name: Run CLI
         shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           set -euo pipefail
 
@@ -96,7 +121,8 @@ jobs:
           source_tree="$(git -C "$workspace_path" write-tree)"
           git -C "$workspace_path" archive "$source_tree" | tar -x -C "$source_path"
 
-          cp "$SHIPSKIP_SESSION_PATH/session.log" "$SHIPSKIP_SUBMISSION_PATH/session.log"
+          perl -pe 's/([A-Z0-9_]*(?:KEY|TOKEN|SECRET)[A-Z0-9_]*=)[^[:space:]]+/${1}[REDACTED]/g; s/(sk-(?:proj-)?[A-Za-z0-9_-]+)/[REDACTED]/g; s/(sk-or-v1-[A-Za-z0-9]+)/[REDACTED]/g; s/(AIza[A-Za-z0-9_-]+)/[REDACTED]/g; s/(pplx-[A-Za-z0-9]+)/[REDACTED]/g; s/(cfat_[A-Za-z0-9]+)/[REDACTED]/g' \
+            "$SHIPSKIP_SESSION_PATH/session.log" > "$SHIPSKIP_SUBMISSION_PATH/session.log"
 
           jq -n \
             --arg task "$SHIPSKIP_TASK" \
@@ -134,6 +160,7 @@ jobs:
         env:
           GIT_AUTHOR_NAME: ${{ github.actor }}
           GIT_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -143,7 +170,7 @@ jobs:
               -c user.email="$GIT_AUTHOR_EMAIL" \
               commit -m "Add shipskip submission $SHIPSKIP_TASK/$SHIPSKIP_TEMPLATE"
 
-          git push origin "HEAD:$GITHUB_REF_NAME"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:$GITHUB_REF_NAME"
 
       - name: Write run summary
         shell: bash

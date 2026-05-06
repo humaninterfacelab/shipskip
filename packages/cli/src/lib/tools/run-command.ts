@@ -11,6 +11,7 @@ type AllowedCommand = (typeof ALLOWED_COMMANDS)[number];
 
 const MAX_OUTPUT_LENGTH = 1_000_000; // 1MB
 const DEFAULT_TIMEOUT_MS = 60_000;
+const SENSITIVE_ENV_NAME = /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i;
 
 /**
  * Tokens that imply shell parsing/control flow.
@@ -115,6 +116,7 @@ async function executeScript(
     command: cmd,
     args,
     cwd: workspaceRoot,
+    env: sanitizeCommandEnvironment(process.env),
     timeoutMs,
     maxOutputLength: MAX_OUTPUT_LENGTH,
     timeoutMessage: `Command timed out after ${timeoutMs}ms: ${normalizedScript}
@@ -122,6 +124,12 @@ async function executeScript(
 This tool is intended for finite commands such as build, lint, test, and install.
 Long-running commands such as dev servers should use a dedicated server/preview tool.`,
   });
+}
+
+function sanitizeCommandEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(([name]) => !SENSITIVE_ENV_NAME.test(name)),
+  );
 }
 
 function assertNoShellSyntax(script: string) {
