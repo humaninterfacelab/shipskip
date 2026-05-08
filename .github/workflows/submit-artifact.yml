@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   generate:
-    name: Generate submission
+    name: Generate shipskip task artifact
     if: ${{ github.ref_name != github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -90,16 +90,23 @@ jobs:
             ref: $ref
           }' > manifest.json
 
+      - name: Stage artifact files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p artifact
+          cp -R "$SHIPSKIP_SESSION_DIR/build" artifact/build
+          cp "$SHIPSKIP_SESSION_DIR/app.tar.gz" artifact/app.tar.gz
+          cp "$SHIPSKIP_SESSION_DIR/logs.ndjson" artifact/logs.ndjson
+          cp manifest.json artifact/manifest.json
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shipskip-artifact
+          name: artifact
           overwrite: true
-          path: |
-            ${{ env.SHIPSKIP_SESSION_DIR }}/build
-            ${{ env.SHIPSKIP_SESSION_DIR }}/app.tar.gz
-            ${{ env.SHIPSKIP_SESSION_DIR }}/logs.ndjson
-            manifest.json
+          path: artifact/*
 
       - name: Commit manifest.json
         shell: bash
