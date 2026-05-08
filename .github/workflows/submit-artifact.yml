@@ -1,18 +1,14 @@
-name: Submit shipskip artifact
+name: Submit shipskip task artifact
 
 on:
   workflow_dispatch:
     inputs:
       task:
-        description: Task name under tasks/<task>/<template>
+        description: Task name from '@shipskip/tasks'
         required: true
-        default: saas-landing-page
-      template:
-        description: Template name under templates/<template>
-        required: true
-        default: nextjs
+        default: next-app/saas-landing-page
       model:
-        description: Model profile, for example openai/gpt-5.5#high
+        description: Model profile, for example 'openrouter/openai/gpt-oss-120b:free'
         required: true
         default: google/gemini-3.1-flash-lite-preview#low
 
@@ -27,47 +23,14 @@ jobs:
 
     env:
       SHIPSKIP_TASK: ${{ inputs.task }}
-      SHIPSKIP_TEMPLATE: ${{ inputs.template }}
       SHIPSKIP_MODEL: ${{ inputs.model }}
-
-      SHIPSKIP_SESSION_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
-      SHIPSKIP_SUBMISSION_PATH: submissions/${{ inputs.task }}/${{ inputs.template }}/${{ github.actor }}/${{ github.run_id }}-${{ github.run_attempt }}
+      SHIPSKIP_SESSION_DIR: ${{ runner.temp }}/shipskip
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          persist-credentials: false
-
-      - name: Validate inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          validate_path_segment() {
-            local name="$1"
-            local value="$2"
-
-            [[ "$value" =~ ^[A-Za-z0-9._-]+$ ]] || {
-              echo "::error::$name must contain only letters, numbers, dots, underscores, or hyphens."
-              exit 1
-            }
-
-            [[ "$value" != .* ]] || {
-              echo "::error::$name cannot start with a dot."
-              exit 1
-            }
-          }
-
-          validate_path_segment "task" "$SHIPSKIP_TASK"
-          validate_path_segment "template" "$SHIPSKIP_TEMPLATE"
-
-      - name: Prepare session path
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "SHIPSKIP_SESSION_PATH=$RUNNER_TEMP/shipskip-session" >> "$GITHUB_ENV"
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -77,113 +40,67 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build CLI
-        run: bun --filter '@shipskip/cli' build
+      # Required for shipskip cli and creating manifest.json
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run CLI
         shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          # Add API Keys here as needed
         run: |
-          set -euo pipefail
+          bun dev:cli run \
+          --task "$SHIPSKIP_TASK" \
+          --model "$SHIPSKIP_MODEL"
 
-          task_path="tasks/$SHIPSKIP_TASK/$SHIPSKIP_TEMPLATE"
-          template_path="templates/$SHIPSKIP_TEMPLATE"
-
-          bun packages/cli/dist/index.js run \
-            --instructions "$task_path/instructions.md" \
-            --prompt "$task_path/prompt.md" \
-            --template "$template_path" \
-            --model "$SHIPSKIP_MODEL"
-
-      - name: Validate generated source
+      - name: Create manifest.json
         shell: bash
         run: |
           set -euo pipefail
-
-          bash "$SHIPSKIP_SESSION_PATH/workspace/build.sh" \
-            "$RUNNER_TEMP/shipskip-build-output"
-
-      - name: Write submission files
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          source_path="$SHIPSKIP_SUBMISSION_PATH/source"
-          workspace_path="$SHIPSKIP_SESSION_PATH/workspace"
-
-          mkdir -p "$source_path"
-
-          git -C "$workspace_path" add -A
-          source_tree="$(git -C "$workspace_path" write-tree)"
-          git -C "$workspace_path" archive "$source_tree" | tar -x -C "$source_path"
-
-          perl -pe 's/([A-Z0-9_]*(?:KEY|TOKEN|SECRET)[A-Z0-9_]*=)[^[:space:]]+/${1}[REDACTED]/g; s/(sk-(?:proj-)?[A-Za-z0-9_-]+)/[REDACTED]/g; s/(sk-or-v1-[A-Za-z0-9]+)/[REDACTED]/g; s/(AIza[A-Za-z0-9_-]+)/[REDACTED]/g; s/(pplx-[A-Za-z0-9]+)/[REDACTED]/g; s/(cfat_[A-Za-z0-9]+)/[REDACTED]/g' \
-            "$SHIPSKIP_SESSION_PATH/session.log" > "$SHIPSKIP_SUBMISSION_PATH/session.log"
 
           jq -n \
-            --arg task "$SHIPSKIP_TASK" \
-            --arg template "$SHIPSKIP_TEMPLATE" \
-            --arg model "$SHIPSKIP_MODEL" \
-            --arg submittedBy "${{ github.actor }}" \
-            --arg sourceRepo "${{ github.repository }}" \
-            --arg submissionRunId "${{ github.run_id }}" \
-            --arg submissionRunAttempt "${{ github.run_attempt }}" \
-            '{
-              task: $task,
-              template: $template,
-              model: $model,
-              submittedBy: $submittedBy,
-              sourceRepo: $sourceRepo,
-              submissionRunId: $submissionRunId,
-              submissionRunAttempt: $submissionRunAttempt
-            }' > "$SHIPSKIP_SUBMISSION_PATH/manifest.json"
+          --arg model "$SHIPSKIP_MODEL" \
+          --arg task "$SHIPSKIP_TASK" \
+          --arg run_id "$GITHUB_RUN_ID" \
+          --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+          --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          --arg submitter "$GITHUB_ACTOR" \
+          --arg repo "$GITHUB_REPOSITORY" \
+          --arg sha "$GITHUB_SHA" \
+          --arg ref "$GITHUB_REF_NAME" \
+          '{
+            model: $model,
+            task: $task,
+            run_id: $run_id,
+            run_attempt: $run_attempt,
+            run_url: $run_url,
+            submitter: $submitter,
+            repo: $repo,
+            sha: $sha,
+            ref: $ref
+          }' > manifest.json
 
-          cat > "$SHIPSKIP_SUBMISSION_PATH/summary.md" <<EOF
-          # shipskip submission
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipskip-artifact
+          overwrite: true
+          path: |
+            ${{ env.SHIPSKIP_SESSION_DIR }}/build
+            ${{ env.SHIPSKIP_SESSION_DIR }}/app.tar.gz
+            ${{ env.SHIPSKIP_SESSION_DIR }}/logs.ndjson
+            manifest.json
 
-          - Task: \`$SHIPSKIP_TASK\`
-          - Template: \`$SHIPSKIP_TEMPLATE\`
-          - Model: \`$SHIPSKIP_MODEL\`
-          - Submitted by: \`${{ github.actor }}\`
-          - Source path: \`$source_path\`
-          - Log path: \`$SHIPSKIP_SUBMISSION_PATH/session.log\`
-
-          Maintainers should publish this PR and then close it without merging.
-          EOF
-
-      - name: Commit submission files
-        shell: bash
-        env:
-          GIT_AUTHOR_NAME: ${{ github.actor }}
-          GIT_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          git add "$SHIPSKIP_SUBMISSION_PATH"
-
-          git -c user.name="$GIT_AUTHOR_NAME" \
-              -c user.email="$GIT_AUTHOR_EMAIL" \
-              commit -m "Add shipskip submission $SHIPSKIP_TASK/$SHIPSKIP_TEMPLATE"
-
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:$GITHUB_REF_NAME"
-
-      - name: Write run summary
+      - name: Commit manifest.json
         shell: bash
         run: |
-          {
-            echo "## shipskip submission"
-            echo ""
-            echo "Committed submission files to \`$SHIPSKIP_SUBMISSION_PATH\`."
-            echo ""
-            echo "Open a pull request with these submission files. Maintainers should publish it and then close it without merging."
-            echo ""
-            echo "Maintainers should publish using:"
-            echo ""
-            echo "- Pull request: PR number"
-            echo "- Submission SHA: \`$(git rev-parse HEAD)\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          git add manifest.json
+          git commit -m "Add manifest.json" || exit 0
+          git push

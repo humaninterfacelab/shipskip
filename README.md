@@ -7,16 +7,15 @@ The CLI copies a template into a temporary session directory, gives an agent a t
 ## Repository Layout
 
 - `packages/cli` - Bun CLI that runs tasks through the AI SDK `ToolLoopAgent`.
-- `templates` - starter projects copied into each agent session.
-- `tasks` - task definitions, prompts, and build scripts.
-- `docs` - project workflow and architecture documentation.
+- `packages/tasks` - packaged task registry, prompts, and templates used by the CLI.
+- `apps/web` - Next.js web app.
 - `.github/workflows` - CI checks plus artifact submission and publishing flows.
 
 ## Requirements
 
 - Bun
 - Git
-- Provider API key for the model you run, such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, or `GOOGLE_API_KEY`
+- Provider API key for the model you run, such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, or `GOOGLE_API_KEY`
 
 ## Setup
 
@@ -32,19 +31,17 @@ Run the sample SaaS landing page task against the Next.js template:
 
 ```bash
 bun run dev:cli -- run \
-  --instructions tasks/saas-landing-page/nextjs/instructions.md \
-  --prompt tasks/saas-landing-page/nextjs/prompt.md \
-  --template templates/nextjs \
+  --task next-app/saas-landing-page \
   --model openai/gpt-5.5#high
 ```
 
-The command prints a `SHIPSKIP_SESSION=...` JSON object at the end with the generated workspace and session log paths.
+The command writes the generated app to the session directory. By default sessions are created under `<tmp>/shipskip/<timestamp>`, or you can set `SHIPSKIP_SESSION_DIR` to choose a fixed location.
 
 For CLI options, model profile syntax, and session environment variables, see [`packages/cli/README.md`](packages/cli/README.md).
 
 ## Development Checks
 
-To lint, typecheck, test, and build all workspace packages:
+To format-check, lint, typecheck, and build all workspace packages:
 
 ```bash
 bun run check

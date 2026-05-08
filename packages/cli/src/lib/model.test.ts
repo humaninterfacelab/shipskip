@@ -4,16 +4,18 @@ import { parseModelProfile } from "./model";
 
 describe("parseModelProfile", () => {
   test("parses provider and model name", () => {
-    expect(parseModelProfile("openai/gpt-5.1")).toEqual({
+    expect(parseModelProfile("openai/gpt-5.5")).toEqual({
       provider: "openai",
-      modelName: "gpt-5.1",
+      modelName: "gpt-5.5",
       reasoning: undefined,
     });
   });
 
-  test("parses provider, slash-containing model names, and reasoning", () => {
+  test("parses slash-containing model names and reasoning", () => {
     expect(
-      parseModelProfile("openrouter/meta-llama/llama-3.1-8b-instruct:free#high"),
+      parseModelProfile(
+        "openrouter/meta-llama/llama-3.1-8b-instruct:free#high",
+      ),
     ).toEqual({
       provider: "openrouter",
       modelName: "meta-llama/llama-3.1-8b-instruct:free",
@@ -30,7 +32,7 @@ describe("parseModelProfile", () => {
   });
 
   test("rejects missing provider or model names", () => {
-    expect(() => parseModelProfile("gpt-5.1")).toThrow(
+    expect(() => parseModelProfile("gpt-5.5")).toThrow(
       "Model must be in the format '<provider>/<model>[#reasoning]'.",
     );
     expect(() => parseModelProfile("openai/")).toThrow(
@@ -39,7 +41,7 @@ describe("parseModelProfile", () => {
   });
 
   test("rejects empty reasoning suffixes", () => {
-    expect(() => parseModelProfile("openai/gpt-5.1#")).toThrow(
+    expect(() => parseModelProfile("openai/gpt-5.5#")).toThrow(
       "Model reasoning cannot be empty when '#' is provided.",
     );
   });

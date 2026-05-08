@@ -21,7 +21,9 @@ export const createGoogleModel: ModelFactory = function ({ name, reasoning }) {
 function parseThinkingLevel(
   reasoning: string,
 ): NonNullable<
-  NonNullable<GoogleGenerativeAIProviderOptions["thinkingConfig"]>["thinkingLevel"]
+  NonNullable<
+    GoogleGenerativeAIProviderOptions["thinkingConfig"]
+  >["thinkingLevel"]
 > {
   if (
     reasoning === "minimal" ||
@@ -32,5 +34,7 @@ function parseThinkingLevel(
     return reasoning;
   }
 
-  throw new Error("Google reasoning must be one of: minimal, low, medium, high.");
+  throw new Error(
+    "Google reasoning must be one of: minimal, low, medium, high.",
+  );
 }

@@ -1,0 +1,22 @@
+{
+  "name": "@shipskip/tasks",
+  "version": "0.1.0",
+  "type": "module",
+  "files": [
+    "task-registry.json",
+    "prompts",
+    "templates"
+  ],
+  "exports": {
+    "./task-registry.json": "./task-registry.json",
+    "./prompts/*": "./prompts/*",
+    "./templates/*": "./templates/*"
+  },
+  "scripts": {
+    "lint": "bun -e \"console.log('No lint required')\"",
+    "test": "bun -e \"console.log('No tests required')\"",
+    "coverage": "bun -e \"console.log('No coverage required')\"",
+    "typecheck": "bun -e \"console.log('No typecheck required')\"",
+    "build": "bun -e \"console.log('No build required')\""
+  }
+}
