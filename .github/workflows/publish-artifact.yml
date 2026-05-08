@@ -1,0 +1,107 @@
+name: Publish shipskip artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_sha:
+        description: Commit SHA that created the manifest.json
+        required: true
+        type: string
+      pr_number:
+        description: "Pull request number"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MANIFEST_SHA: ${{ inputs.manifest_sha }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+
+      - name: Validate head
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pr_head_sha=$(git rev-parse HEAD)
+          if [[ "$pr_head_sha" != "$MANIFEST_SHA" ]]; then
+            echo "Error: Manifest SHA does not match PR head SHA"
+            exit 1
+          fi
+
+      - name: Parse manifest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MODEL=$(jq -er '.model' manifest.json)
+          TASK=$(jq -er '.task' manifest.json)
+          RUN_ID=$(jq -er '.run_id | tostring' manifest.json)
+          REPO=$(jq -er '.repo' manifest.json)
+
+          if [[ "$REPO" != "$GITHUB_REPOSITORY" ]]; then
+            echo "Error: Manifest repo must match this repository"
+            exit 1
+          fi
+
+          echo "MODEL=$MODEL" >> "$GITHUB_ENV"
+          echo "TASK=$TASK" >> "$GITHUB_ENV"
+          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          echo "REPO=$REPO" >> "$GITHUB_ENV"
+
+      - name: Validate source workflow run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/${REPO}/actions/runs/${RUN_ID}" | jq -e '
+            .head_sha == env.MANIFEST_SHA and
+            .name == "Submit shipskip artifact" and
+            .event == "workflow_dispatch" and
+            .conclusion == "success"
+          ' > /dev/null
+
+      - name: Download artifact from public repo
+        uses: actions/download-artifact@v8
+        with:
+          repository: ${{ env.REPO }}
+          run-id: ${{ env.RUN_ID }}
+          name: artifact
+          github-token: ${{ github.token }}
+          path: ./artifact
+
+      - name: Deploy static website
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: |
+            pages deploy ./artifact/build \
+              --project-name=${{ env.PAGES_PROJECT_NAME }} \
+              --branch=${{ env.PR_NUMBER }}-${{ env.MANIFEST_SHA }} \
+              --commit-hash=${{ env.MANIFEST_SHA }}
+
+      - name: Upload to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: |
+            r2 object put shipskip-artifacts/${{ env.MANIFEST_SHA }}/manifest.json --file ./artifact/manifest.json
+            r2 object put shipskip-artifacts/${{ env.MANIFEST_SHA }}/logs.ndjson --file ./artifact/logs.ndjson
+            r2 object put shipskip-artifacts/${{ env.MANIFEST_SHA }}/app.tar.gz --file ./artifact/app.tar.gz
