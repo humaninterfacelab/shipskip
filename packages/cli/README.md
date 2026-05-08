@@ -18,7 +18,7 @@ bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/deepseek/d
 bun dev:cli run -t next-app/software-engineer-portfolio -m google/gemini-3.1-flash-lite#low
 bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/openai/gpt-oss-120b:free
 bun dev:cli run -t next-app/software-engineer-portfolio -m perplexity/sonar-pro
-bun dev:cli run -t next-app/saas-landing-page -m google/gemini-3.1-flash-lite#minimal
+bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/google/gemini-3.1-flash-lite-preview#minimal
 ```
 
 ## Options

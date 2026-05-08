@@ -6,11 +6,11 @@ on:
       task:
         description: Task name from '@shipskip/tasks'
         required: true
-        default: next-app/saas-landing-page
+        default: next-app/software-engineer-portfolio
       model:
         description: Model profile, for example 'openrouter/openai/gpt-oss-120b:free'
         required: true
-        default: google/gemini-3.1-flash-lite-preview#low
+        default: openrouter/google/gemini-3.1-flash-lite-preview#low
 
 permissions:
   contents: write
