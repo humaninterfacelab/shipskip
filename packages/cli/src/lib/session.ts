@@ -1,38 +1,24 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
-export type Session = {
-  id: string;
-  path: string;
-  workspacePath: string;
-  logPath: string;
-};
+let _sessionDir: string | null = null;
 
-export async function createSession(): Promise<Session> {
-  const id = process.env.SHIPSKIP_SESSION_ID ?? randomUUID();
-  const sessionPath = path.resolve(
-    process.env.SHIPSKIP_SESSION_PATH ?? path.join(os.tmpdir(), ".shipskip", id),
-  );
-  const workspacePath = path.join(sessionPath, "workspace");
+export function createSession() {
+  if (_sessionDir) return;
 
-  await mkdir(sessionPath, { recursive: true });
-  await rm(workspacePath, { force: true, recursive: true });
-
-  return {
-    id,
-    path: sessionPath,
-    workspacePath,
-    logPath: path.join(sessionPath, "session.log"),
-  };
+  if (process.env.SHIPSKIP_SESSION_DIR) {
+    _sessionDir = process.env.SHIPSKIP_SESSION_DIR;
+  } else {
+    const timestamp = new Date().toISOString().replace(/:/g, "-");
+    _sessionDir = path.join(os.tmpdir(), "shipskip", timestamp);
+  }
+  if (!fs.existsSync(_sessionDir)) {
+    fs.mkdirSync(_sessionDir, { recursive: true });
+  }
 }
 
-export function formatSessionArtifacts(session: Session): string {
-  return `\nSHIPSKIP_SESSION=${JSON.stringify({
-    id: session.id,
-    path: session.path,
-    workspacePath: session.workspacePath,
-    logPath: session.logPath,
-  })}`;
+export function getSessionDir() {
+  if (!_sessionDir) createSession();
+  return _sessionDir!;
 }

@@ -1,186 +1,236 @@
-import { cp, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { stepCountIs, ToolLoopAgent } from "ai";
+import { isLoopFinished, ToolLoopAgent } from "ai";
 import { Command } from "commander";
+import { consola } from "consola";
+import * as c from "yoctocolors";
 
-import { createLogger } from "../lib/logger";
+import { getLogger } from "../lib/logger";
 import { getModel, parseModelProfile } from "../lib/model";
+import { getSessionDir } from "../lib/session";
 import {
-  createSession,
-  formatSessionArtifacts,
-  type Session,
-} from "../lib/session";
-import { createApplyPatchTool } from "../lib/tools/apply-patch";
-import { createCreateFileTool } from "../lib/tools/create-file";
-import { createDeleteFileTool } from "../lib/tools/delete-file";
-import { createFindFilesTool } from "../lib/tools/find-files";
-import { createGetDiffTool } from "../lib/tools/get-diff";
-import { createListDirectoryTool } from "../lib/tools/list-directories";
-import { createMoveFileTool } from "../lib/tools/move-file";
-import { createReadFileTool } from "../lib/tools/read-files";
-import { createRunCommandTool } from "../lib/tools/run-command";
-import { createSearchCodeTool } from "../lib/tools/search-code";
-import { truncateText } from "../lib/utils";
-import { initializeWorkspaceGitRepository } from "../lib/workspace";
-
-const MAX_LOG_VALUE_LENGTH = 4_000;
-const TOTAL_AGENT_TIMEOUT_MS = 10 * 60_000;
+  buildApp,
+  getPrompt,
+  getTaskRegistry,
+  scaffoldTemplate,
+} from "../lib/task";
+import { createCrudFileTools } from "../lib/tools/crud-files";
+import { createGitTool } from "../lib/tools/git";
+import { createListFileTool } from "../lib/tools/list-files";
+import { createRipgrepTool } from "../lib/tools/ripgrep";
+import { createRunScriptTool } from "../lib/tools/run-script";
+import { summarizeValue, truncate } from "../lib/utils";
 
 type RunOptions = {
-  instructions: string;
-  prompt: string;
-  template: string;
+  task: string;
   model: string;
 };
 
-const runAction = async function (options: RunOptions) {
-  let session: Session | undefined;
-  let logger: ReturnType<typeof createLogger> | undefined;
+const TOTAL_AGENT_TIMEOUT_MS = 30 * 60_000;
+
+async function createTools(appDir: string) {
+  return {
+    tools: {
+      ...createCrudFileTools(appDir),
+      ...createGitTool(appDir),
+      ...createListFileTool(appDir),
+      ...createRipgrepTool(appDir),
+      ...createRunScriptTool(appDir),
+    },
+  };
+}
+
+async function resolveTask(taskName: string) {
+  const registry = await getTaskRegistry();
+  const task = registry[taskName];
+
+  if (!task) {
+    throw new Error(`Unknown task: ${taskName}`);
+  }
+
+  const [prompt, systemPrompt] = await Promise.all([
+    getPrompt(task.prompt),
+    getPrompt(task.systemPrompt),
+  ]);
+
+  return { task, prompt, systemPrompt };
+}
+
+const runAction = async (options: RunOptions) => {
+  const logger = getLogger();
 
   try {
-    session = await createSession();
-    logger = createLogger(session.logPath);
-    logger.info({ session }, "Running task");
+    consola.start(c.bold("Running shipskip task"));
+    logger.info({ task: options.task, model: options.model }, "Run started");
 
-    const templatePath = path.resolve(options.template);
+    const sessionDir = getSessionDir();
+    const appDir = path.join(sessionDir, "app");
 
-    logger.info("Creating temporary workspace for the agent...");
-    const workspacePath = session.workspacePath;
-    await cp(templatePath, workspacePath, {
-      recursive: true,
-    });
-    await initializeWorkspaceGitRepository(workspacePath);
-    logger.info(`Workspace created at: ${workspacePath}`);
+    logger.debug({ sessionDir, appDir }, "Resolved run directories");
 
-    const [instructions, prompt] = await Promise.all([
-      readFile(path.resolve(options.instructions), "utf8"),
-      readFile(path.resolve(options.prompt), "utf8"),
-    ]);
+    const { task, prompt, systemPrompt } = await resolveTask(options.task);
 
-    logger.debug(`Instructions: ${formatLogValue(instructions)}`);
-    logger.debug(`Prompt: ${formatLogValue(prompt)}`);
+    consola.info(
+      `${c.bold(options.task)} ${c.dim("using template")} ${c.cyan(task.template)}`,
+    );
+    consola.debug(`${c.dim("prompt")} ${truncate(prompt, 150)}`);
+    consola.debug(`${c.dim("system")} ${truncate(systemPrompt, 150)}`);
+
+    logger.info(
+      {
+        task: options.task,
+        template: task.template,
+      },
+      "Task resolved",
+    );
+
+    logger.debug(
+      {
+        promptLength: prompt.length,
+        systemPromptLength: systemPrompt.length,
+      },
+      "Prompts resolved",
+    );
 
     const { provider, modelName, reasoning } = parseModelProfile(options.model);
-    logger.debug({ provider, modelName, reasoning }, "Parsed model profile");
+
+    consola.info(
+      `${c.bold(provider)}/${modelName}${reasoning ? c.dim(`#${reasoning}`) : ""}`,
+    );
+
+    logger.info({ provider, modelName, reasoning }, "Model resolved");
 
     const { model, providerOptions } = getModel(provider, modelName, reasoning);
 
-    const applyPatch = await createApplyPatchTool(workspacePath);
-    const createFile = await createCreateFileTool(workspacePath);
-    const deleteFile = await createDeleteFileTool(workspacePath);
-    const findFiles = await createFindFilesTool(workspacePath);
-    const getDiff = await createGetDiffTool(workspacePath);
-    const listDirectory = await createListDirectoryTool(workspacePath);
-    const moveFile = await createMoveFileTool(workspacePath);
-    const readFileTool = await createReadFileTool(workspacePath);
-    const runCommand = await createRunCommandTool(workspacePath);
-    const searchCode = await createSearchCodeTool(workspacePath);
+    logger.debug({ providerOptions }, "Provider options resolved");
+
+    consola.info(`Scaffolding ${c.cyan(task.template)}`);
+
+    logger.debug({ template: task.template, appDir }, "Scaffolding template");
+    await scaffoldTemplate(task.template, appDir);
+
+    logger.info({ template: task.template }, "Template scaffolded");
+
+    const { tools } = await createTools(appDir);
+
+    logger.debug({ tools: Object.keys(tools) }, "Agent tools created");
 
     const agent = new ToolLoopAgent({
       model,
       providerOptions,
-      instructions,
+      instructions: systemPrompt,
       maxRetries: 5,
-      stopWhen: stepCountIs(50),
-      tools: {
-        ...applyPatch,
-        ...createFile,
-        ...deleteFile,
-        ...findFiles,
-        ...getDiff,
-        ...listDirectory,
-        ...moveFile,
-        ...readFileTool,
-        ...runCommand,
-        ...searchCode,
-      },
+      stopWhen: isLoopFinished(),
+      tools,
     });
+
+    logger.info(
+      {
+        maxRetries: 5,
+        timeoutMs: TOTAL_AGENT_TIMEOUT_MS,
+      },
+      "Agent created",
+    );
+    consola.info(
+      `Agent created ${c.dim(`timeout ${TOTAL_AGENT_TIMEOUT_MS / 60_000}m`)}`,
+    );
 
     const result = await agent.stream({
       prompt,
       timeout: { totalMs: TOTAL_AGENT_TIMEOUT_MS },
     });
 
+    logger.debug("Agent stream started");
+
+    let outputType = "";
     for await (const part of result.fullStream) {
+      logger.trace({ part }, "Agent stream event");
+
+      if (outputType !== part.type) {
+        process.stdout.write("\n");
+        outputType = part.type;
+      }
+
       switch (part.type) {
-        case "text-delta":
+        case "text-delta": {
+          logger.trace({ text: part.text }, "text-delta");
           process.stdout.write(part.text);
           break;
+        }
 
-        case "reasoning-delta":
-          logger.debug(formatLogValue(part.text));
+        case "reasoning-delta": {
+          logger.trace({ text: part.text }, "reasoning-delta");
+          process.stdout.write(c.dim(part.text));
           break;
+        }
 
-        case "tool-call":
-          logger.debug(
-            { input: formatLogValue(part.input) },
-            `Tool call: ${part.toolName}`,
+        case "tool-call": {
+          const toolName = part.toolName ?? "unknown";
+
+          logger.debug({ toolName, input: part.input }, "tool-call");
+          consola.info(
+            `${c.bold(toolName)} ${c.dim(summarizeValue(part.input) ?? "")}`,
           );
           break;
+        }
 
-        case "tool-result":
-          logger.debug(
-            { output: formatLogValue(part.output) },
-            `Tool result: ${part.toolName}`,
+        case "tool-result": {
+          const toolName = part.toolName ?? "unknown";
+
+          logger.debug({ toolName, input: part.input }, "tool-result");
+          consola.debug(
+            `${c.bold(toolName)} ${c.dim(summarizeValue(part.input) ?? "")}`,
           );
           break;
+        }
 
-        case "finish-step":
-          logger.debug(`Finish step: ${part.finishReason}`);
+        case "finish-step": {
+          logger.debug({ finishReason: part.finishReason }, "finish-step");
+          consola.debug(`${c.dim("step finished")} ${part.finishReason}`);
           break;
+        }
 
-        case "error":
+        case "finish": {
+          consola.success(
+            `\nAgent loop finished`,
+            c.dim(summarizeValue(part.totalUsage) ?? ""),
+          );
+          logger.info({ usage: part.totalUsage }, "finish");
+          break;
+        }
+
+        case "error": {
+          logger.error({ err: part.error }, "Agent stream error");
+          consola.error("Stream failed", part.error);
           throw part.error;
-
-        case "finish":
-          logger.debug({ usage: part.totalUsage }, "Finished");
-          break;
+        }
       }
     }
 
-    process.stdout.write("\n");
-  } catch (error) {
-    if (logger) {
-      logger.error(error);
-    } else {
-      console.error(error);
-    }
+    logger.debug("Agent stream closed");
 
+    consola.info("Building app...");
+    logger.debug({ sessionDir, appDir }, "Building app");
+    await buildApp(sessionDir, appDir);
+    logger.info("App built");
+
+    logger.info("Run completed");
+
+    consola.success(c.bold("Task completed!"));
+  } catch (error) {
+    consola.error("Execution failed", error);
+    logger.error({ err: error }, "Execution failed");
     process.exitCode = 1;
-  } finally {
-    if (session) {
-      process.stdout.write(`${formatSessionArtifacts(session)}\n`);
-    }
   }
 };
 
-function formatLogValue(value: unknown) {
-  if (typeof value === "string") {
-    return truncateText(value, MAX_LOG_VALUE_LENGTH);
-  }
-
-  if (value instanceof Error) {
-    return truncateText(value.stack ?? value.message, MAX_LOG_VALUE_LENGTH);
-  }
-
-  try {
-    return truncateText(
-      JSON.stringify(value, null, 2) ?? String(value),
-      MAX_LOG_VALUE_LENGTH,
-    );
-  } catch {
-    return truncateText(String(value), MAX_LOG_VALUE_LENGTH);
-  }
-}
-
 export const runCommand = new Command("run")
-  .description("Run a shipskip frontend task from instructions, prompt, and template files")
-  .requiredOption("-i, --instructions <file>", "frontend task instructions file")
-  .requiredOption("-p, --prompt <file>", "frontend task prompt file")
+  .description(
+    "Run a shipskip frontend task from instructions, prompt, and template files",
+  )
   .requiredOption(
-    "-w, --template <dir>",
-    "workspace template directory eg. 'templates/nextjs'",
+    "-t, --task <string>",
+    "shipskip task from @shipskip/tasks, such as 'next-app/saas-landing-page'",
   )
   .requiredOption(
     "-m, --model <string>",

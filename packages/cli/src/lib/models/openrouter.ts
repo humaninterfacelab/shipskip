@@ -5,7 +5,10 @@ import {
 
 import type { ModelFactory } from "./types";
 
-export const createOpenRouterModel: ModelFactory = function ({ name, reasoning }) {
+export const createOpenRouterModel: ModelFactory = function ({
+  name,
+  reasoning,
+}) {
   return {
     model: openrouter(name),
     providerOptions: reasoning

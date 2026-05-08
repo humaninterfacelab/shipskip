@@ -1,33 +1,27 @@
+import path from "node:path";
+
 import pino from "pino";
 
-export function createLogger(logPath: string) {
-  const transport = pino.transport({
-    targets: [
-      {
-        target: "pino-pretty",
-        level: "debug",
-        options: {
-          destination: 2,
-          colorize: true,
-          translateTime: "SYS:standard",
-        },
-      },
-      {
-        target: "pino/file",
-        level: "debug",
-        options: {
-          destination: logPath,
-          mkdir: true,
-          append: false,
-        },
-      },
-    ],
-  });
+import { getSessionDir } from "./session";
 
-  return pino(
+let logger: pino.Logger | undefined;
+
+export function getLogger() {
+  if (logger) return logger;
+
+  const level = "trace";
+
+  logger = pino(
     {
-      level: "debug",
+      base: undefined,
+      level,
     },
-    transport,
+    pino.destination({
+      dest: path.join(getSessionDir(), "logs.ndjson"),
+      mkdir: true,
+      sync: false,
+    }),
   );
+
+  return logger;
 }

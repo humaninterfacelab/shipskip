@@ -30,5 +30,7 @@ function parseReasoningEffort(
     return reasoning;
   }
 
-  throw new Error("OpenAI reasoning must be one of: minimal, low, medium, high.");
+  throw new Error(
+    "OpenAI reasoning must be one of: minimal, low, medium, high.",
+  );
 }

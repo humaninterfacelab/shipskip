@@ -6,30 +6,27 @@ CLI package for `shipskip`. It runs frontend tasks by copying a template into a 
 
 ```bash
 shipskip run \
-  --instructions <file> \
-  --prompt <file> \
-  --template <dir> \
+  --task <task-name> \
   --model <provider>/<model>[#reasoning]
 ```
 
 From the repository root during development:
 
 ```bash
-bun run dev:cli -- run \
-  --instructions tasks/saas-landing-page/nextjs/instructions.md \
-  --prompt tasks/saas-landing-page/nextjs/prompt.md \
-  --template templates/nextjs \
-  --model google/gemini-3.1-flash-lite-preview#low
+bun dev:cli run -t next-app/saas-landing-page -m openrouter/qwen/qwen3-coder:free
+bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/deepseek/deepseek-v4-flash#low
+bun dev:cli run -t next-app/software-engineer-portfolio -m google/gemini-3.1-flash-lite#low
+bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/openai/gpt-oss-120b:free
+bun dev:cli run -t next-app/software-engineer-portfolio -m perplexity/sonar-pro
+bun dev:cli run -t next-app/saas-landing-page -m google/gemini-3.1-flash-lite#minimal
 ```
 
 ## Options
 
-- `-i, --instructions <file>` - task instruction file used as the agent system instructions.
-- `-p, --prompt <file>` - task prompt file used as the run prompt.
-- `-w, --template <dir>` - template directory copied into the session workspace.
+- `-t, --task <string>` - task name from `@shipskip/tasks`, such as `next-app/saas-landing-page`.
 - `-m, --model <string>` - model profile in `<provider>/<model>[#reasoning]` format.
 
-Supported providers are `openai`, `google`, and `openrouter`.
+Supported providers are `openai`, `google`, `openrouter`, and `perplexity`.
 
 ## Model Profiles
 
@@ -40,13 +37,16 @@ openai/gpt-5.5
 openai/gpt-5.5#high
 google/gemini-3-pro#medium
 openrouter/meta-llama/llama-3.1-8b-instruct:free#high
+perplexity/sonar-pro
+perplexity/sonar-reasoning-pro
 ```
 
 Reasoning support depends on the provider:
 
-- OpenAI: `minimal`, `low`, `medium`, `high`, `xhigh`.
+- OpenAI: `minimal`, `low`, `medium`, `high`.
 - Google: `minimal`, `low`, `medium`, `high`.
 - OpenRouter: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or a positive token count.
+- Perplexity: choose a reasoning model such as `sonar-reasoning` or `sonar-reasoning-pro`.
 
 ## Environment Variables
 
@@ -54,15 +54,15 @@ Provider API keys are read by their AI SDK providers. Set the key for the provid
 
 - `OPENAI_API_KEY`
 - `OPENROUTER_API_KEY`
+- `PERPLEXITY_API_KEY`
 - `GOOGLE_GENERATIVE_AI_API_KEY`
 - `GOOGLE_API_KEY`
 
 Session paths can be controlled with:
 
-- `SHIPSKIP_SESSION_ID` - fixed session ID instead of a generated UUID.
-- `SHIPSKIP_SESSION_PATH` - fixed session directory instead of `<tmp>/.shipskip/<session-id>`.
+- `SHIPSKIP_SESSION_DIR` - fixed session directory instead of `<tmp>/shipskip/<timestamp>`.
 
-At the end of every run, the CLI prints `SHIPSKIP_SESSION=...` with `id`, `path`, `workspacePath`, and `logPath`.
+Each run writes the copied app to `<session-dir>/app`, logs to `<session-dir>/logs.ndjson`, and build artifacts to the paths produced by the selected template build script.
 
 ## Tooling Boundaries
 

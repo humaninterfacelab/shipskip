@@ -1,6 +1,7 @@
 import { createGoogleModel } from "./models/google";
 import { createOpenAIModel } from "./models/openai";
 import { createOpenRouterModel } from "./models/openrouter";
+import { createPerplexityModel } from "./models/perplexity";
 import type { ModelConfig, ModelFactory } from "./models/types";
 
 type ModelProvider = keyof typeof modelProviders;
@@ -13,6 +14,7 @@ export type ModelProfile = {
 
 const modelProviders = {
   openrouter: createOpenRouterModel,
+  perplexity: createPerplexityModel,
   google: createGoogleModel,
   openai: createOpenAIModel,
 } satisfies Record<string, ModelFactory>;

@@ -1,0 +1,17 @@
+{
+  "next-app/software-engineer-portfolio": {
+    "template": "templates/next-app",
+    "systemPrompt": "prompts/next-app/instructions.md",
+    "prompt": "prompts/next-app/software-engineer-portfolio.md"
+  },
+  "next-app/operations-dashboard": {
+    "template": "templates/next-app",
+    "systemPrompt": "prompts/next-app/instructions.md",
+    "prompt": "prompts/next-app/operations-dashboard.md"
+  },
+  "next-app/saas-landing-page": {
+    "template": "templates/next-app",
+    "systemPrompt": "prompts/next-app/instructions.md",
+    "prompt": "prompts/next-app/saas-landing-page.md"
+  }
+}

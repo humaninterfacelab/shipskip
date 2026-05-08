@@ -4,6 +4,7 @@ import { getModel } from "./model";
 import { createGoogleModel } from "./models/google";
 import { createOpenAIModel } from "./models/openai";
 import { createOpenRouterModel } from "./models/openrouter";
+import { createPerplexityModel } from "./models/perplexity";
 
 describe("getModel", () => {
   test("rejects unsupported providers", () => {
@@ -13,19 +14,38 @@ describe("getModel", () => {
   });
 
   test("returns model config for supported providers", () => {
-    expect(getModel("openai", "gpt-5.1").model).toBeDefined();
+    expect(getModel("openai", "gpt-5.5").model).toBeDefined();
     expect(getModel("google", "gemini-3-pro").model).toBeDefined();
-    expect(getModel("openrouter", "openai/gpt-5.1").model).toBeDefined();
+    expect(getModel("openrouter", "openai/gpt-5.5").model).toBeDefined();
+    expect(getModel("perplexity", "sonar-pro").model).toBeDefined();
+  });
+});
+
+describe("createPerplexityModel", () => {
+  test("omits provider options", () => {
+    expect(
+      createPerplexityModel({ name: "sonar-pro" }).providerOptions,
+    ).toBeUndefined();
+  });
+
+  test("rejects reasoning suffixes", () => {
+    expect(() =>
+      createPerplexityModel({ name: "sonar-reasoning-pro", reasoning: "high" }),
+    ).toThrow("Perplexity reasoning is selected by model name.");
   });
 });
 
 describe("createOpenAIModel", () => {
   test("omits provider options when reasoning is not provided", () => {
-    expect(createOpenAIModel({ name: "gpt-5.1" }).providerOptions).toBeUndefined();
+    expect(
+      createOpenAIModel({ name: "gpt-5.5" }).providerOptions,
+    ).toBeUndefined();
   });
 
   test("maps valid reasoning efforts", () => {
-    expect(createOpenAIModel({ name: "gpt-5.1", reasoning: "high" })).toMatchObject({
+    expect(
+      createOpenAIModel({ name: "gpt-5.5", reasoning: "high" }),
+    ).toMatchObject({
       providerOptions: {
         openai: {
           reasoningEffort: "high",
@@ -35,19 +55,23 @@ describe("createOpenAIModel", () => {
   });
 
   test("rejects invalid reasoning efforts", () => {
-    expect(() => createOpenAIModel({ name: "gpt-5.1", reasoning: "xhigh" })).toThrow(
-      "OpenAI reasoning must be one of: minimal, low, medium, high.",
-    );
+    expect(() =>
+      createOpenAIModel({ name: "gpt-5.5", reasoning: "xhigh" }),
+    ).toThrow("OpenAI reasoning must be one of: minimal, low, medium, high.");
   });
 });
 
 describe("createGoogleModel", () => {
   test("omits provider options when reasoning is not provided", () => {
-    expect(createGoogleModel({ name: "gemini-3-pro" }).providerOptions).toBeUndefined();
+    expect(
+      createGoogleModel({ name: "gemini-3-pro" }).providerOptions,
+    ).toBeUndefined();
   });
 
   test("maps valid reasoning levels", () => {
-    expect(createGoogleModel({ name: "gemini-3-pro", reasoning: "medium" })).toMatchObject({
+    expect(
+      createGoogleModel({ name: "gemini-3-pro", reasoning: "medium" }),
+    ).toMatchObject({
       providerOptions: {
         google: {
           thinkingConfig: {
@@ -69,13 +93,13 @@ describe("createGoogleModel", () => {
 describe("createOpenRouterModel", () => {
   test("omits provider options when reasoning is not provided", () => {
     expect(
-      createOpenRouterModel({ name: "openai/gpt-5.1" }).providerOptions,
+      createOpenRouterModel({ name: "openai/gpt-5.5" }).providerOptions,
     ).toBeUndefined();
   });
 
   test("maps effort-based reasoning", () => {
     expect(
-      createOpenRouterModel({ name: "openai/gpt-5.1", reasoning: "xhigh" }),
+      createOpenRouterModel({ name: "openai/gpt-5.5", reasoning: "xhigh" }),
     ).toMatchObject({
       providerOptions: {
         openrouter: {
@@ -89,7 +113,7 @@ describe("createOpenRouterModel", () => {
 
   test("maps numeric reasoning to max tokens", () => {
     expect(
-      createOpenRouterModel({ name: "openai/gpt-5.1", reasoning: "1024" }),
+      createOpenRouterModel({ name: "openai/gpt-5.5", reasoning: "1024" }),
     ).toMatchObject({
       providerOptions: {
         openrouter: {
@@ -103,7 +127,7 @@ describe("createOpenRouterModel", () => {
 
   test("rejects invalid reasoning values", () => {
     expect(() =>
-      createOpenRouterModel({ name: "openai/gpt-5.1", reasoning: "0" }),
+      createOpenRouterModel({ name: "openai/gpt-5.5", reasoning: "0" }),
     ).toThrow(
       "OpenRouter reasoning must be one of: none, minimal, low, medium, high, xhigh, or a positive max token count.",
     );

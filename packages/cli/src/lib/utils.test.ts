@@ -1,57 +1,29 @@
+import path from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
-import {
-  addLineNumbers,
-  countOccurrences,
-  looksBinary,
-  replaceFirst,
-  truncateText,
-} from "./utils";
+import { resolveSafePath, truncate } from "./utils";
 
-describe("looksBinary", () => {
-  test("identifies null bytes as binary content", () => {
-    expect(looksBinary(Buffer.from([65, 0, 66]))).toBe(true);
+describe("resolveSafePath", () => {
+  test("resolves paths inside the workspace", () => {
+    expect(resolveSafePath("/workspace", "src/index.ts")).toBe(
+      path.resolve("/workspace/src/index.ts"),
+    );
   });
 
-  test("does not flag normal utf8 text as binary", () => {
-    expect(looksBinary(Buffer.from("hello\nworld", "utf8"))).toBe(false);
-  });
-});
-
-describe("truncateText", () => {
-  test("returns short text unchanged", () => {
-    expect(truncateText("hello", 10)).toBe("hello");
-  });
-
-  test("adds a truncation marker when text exceeds the limit", () => {
-    expect(truncateText("hello world", 5)).toBe(
-      "hello\n\n[Output truncated for length]",
+  test("rejects paths outside the workspace", () => {
+    expect(() => resolveSafePath("/workspace", "../outside.ts")).toThrow(
+      "Path escapes workspace",
     );
   });
 });
 
-describe("addLineNumbers", () => {
-  test("prefixes each line with aligned line numbers", () => {
-    expect(addLineNumbers("alpha\nbeta", 9)).toBe(" 9 | alpha\n10 | beta");
-  });
-});
-
-describe("countOccurrences", () => {
-  test("counts non-overlapping occurrences", () => {
-    expect(countOccurrences("aaaa", "aa")).toBe(2);
+describe("truncate", () => {
+  test("returns short text unchanged", () => {
+    expect(truncate("hello", 10)).toBe("hello");
   });
 
-  test("returns zero when the search text is absent", () => {
-    expect(countOccurrences("abc", "z")).toBe(0);
-  });
-});
-
-describe("replaceFirst", () => {
-  test("replaces only the first matching occurrence", () => {
-    expect(replaceFirst("one two one", "one", "three")).toBe("three two one");
-  });
-
-  test("returns the original text when no match exists", () => {
-    expect(replaceFirst("one two", "three", "four")).toBe("one two");
+  test("adds a truncation marker when text exceeds the limit", () => {
+    expect(truncate("hello world", 5)).toBe("hello\n\n[output truncated]");
   });
 });
