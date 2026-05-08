@@ -111,5 +111,21 @@ jobs:
         shell: bash
         run: |
           git add manifest.json
-          git commit -m "$SHIPSKIP_TASK $SHIPSKIP_MODEL" || exit 0
+          git commit -m "Submission for $SHIPSKIP_TASK" || exit 0
           git push
+
+      - name: Summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Submission for $SHIPSKIP_TASK"
+            echo
+            echo "Copy these details into the PR description:"
+            echo
+
+            jq -r '
+              to_entries[]
+              | "- **\(.key):** `\(.value)`"
+            ' manifest.json
+          } >> "$GITHUB_STEP_SUMMARY"
