@@ -26,6 +26,11 @@ jobs:
         with:
           ref: ${{ env.MANIFEST_SHA }}
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Parse manifest.json
         shell: bash
         run: |
@@ -44,18 +49,24 @@ jobs:
           echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
 
       - name: Validate source workflow run
+        id: validate-source-run
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          gh api "repos/${REPO}/actions/runs/${RUN_ID}" | jq -e '
+          run_metadata=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}")
+
+          jq -e '
             .head_sha == env.SOURCE_SHA and
             .name == "Submit shipskip artifact" and
             .event == "workflow_dispatch" and
             .conclusion == "success"
-          ' > /dev/null
+          ' <<< "$run_metadata" > /dev/null
+
+          PR_NUMBER=$(jq -er '.pull_requests[0].number | tostring' <<< "$run_metadata")
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Download artifact from public repo
         uses: actions/download-artifact@v8
@@ -74,8 +85,8 @@ jobs:
           command: |
             pages deploy ./artifact/build \
               --project-name=${{ env.PAGES_PROJECT_NAME }} \
-              --branch=pr-${{ env.PR_NUMBER }}-${{ env.MANIFEST_SHA }} \
-              --commit-hash=${{ env.MANIFEST_SHA }}
+              --branch=pr-${{ steps.validate-source-run.outputs.pr_number }}-${{ env.SOURCE_SHA }} \
+              --commit-hash=${{ env.SOURCE_SHA }}
 
       - name: Upload to R2
         uses: cloudflare/wrangler-action@v3
