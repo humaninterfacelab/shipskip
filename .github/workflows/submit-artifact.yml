@@ -111,5 +111,5 @@ jobs:
         shell: bash
         run: |
           git add manifest.json
-          git commit -m "Add manifest.json" || exit 0
+          git commit -m "$SHIPSKIP_TASK $SHIPSKIP_MODEL" || exit 0
           git push
