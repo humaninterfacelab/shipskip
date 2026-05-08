@@ -82,7 +82,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./artifact/build --project-name=${{ env.PAGES_PROJECT_NAME }} --branch=pr-${{ steps.validate-source-run.outputs.pr_number }}-${{ env.SOURCE_SHA }} --commit-hash=${{ env.SOURCE_SHA }}
+          command: pages deploy ./artifact/build --project-name=${{ env.PAGES_PROJECT_NAME }} --branch=pr-${{ steps.validate-source-run.outputs.pr_number }}-${{ env.MANIFEST_SHA }} --commit-hash=${{ env.MANIFEST_SHA }} --commit-dirty=true
 
       - name: Upload to R2
         uses: cloudflare/wrangler-action@v3
