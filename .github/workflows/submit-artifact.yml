@@ -24,7 +24,6 @@ jobs:
     env:
       SHIPSKIP_TASK: ${{ inputs.task }}
       SHIPSKIP_MODEL: ${{ inputs.model }}
-      SHIPSKIP_SESSION_DIR: ${{ runner.temp }}/shipskip
 
     steps:
       - name: Checkout
@@ -39,6 +38,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Configure session directory
+        run: echo "SHIPSKIP_SESSION_DIR=${RUNNER_TEMP}/shipskip" >> "$GITHUB_ENV"
 
       # Required for shipskip cli and creating manifest.json
       - name: Configure git
