@@ -1,0 +1,11 @@
+{
+  "model": "google/gemini-3.1-flash-lite-preview#minimal",
+  "task": "next-app/saas-landing-page",
+  "run_id": "25575709860",
+  "run_attempt": "1",
+  "run_url": "https://github.com/vedantnaik19/shipskip/actions/runs/25575709860",
+  "submitter": "vedantnaik19",
+  "repo": "vedantnaik19/shipskip",
+  "sha": "a93ff3ab6401ef68935739ccb490647b3f5196e6",
+  "ref": "submission-1"
+}
