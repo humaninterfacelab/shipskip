@@ -4,11 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       manifest_sha:
-        description: Commit SHA that created the manifest.json
-        required: true
-        type: string
-      pr_number:
-        description: "Pull request number"
+        description: Commit SHA that created manifest.json
         required: true
         type: string
 
@@ -22,25 +18,13 @@ jobs:
     timeout-minutes: 30
     env:
       MANIFEST_SHA: ${{ inputs.manifest_sha }}
-      PR_NUMBER: ${{ inputs.pr_number }}
       PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: refs/pull/${{ env.PR_NUMBER }}/head
-
-      - name: Validate head
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          pr_head_sha=$(git rev-parse HEAD)
-          if [[ "$pr_head_sha" != "$MANIFEST_SHA" ]]; then
-            echo "Error: Manifest SHA does not match PR head SHA"
-            exit 1
-          fi
+          ref: ${{ env.MANIFEST_SHA }}
 
       - name: Parse manifest.json
         shell: bash
@@ -51,11 +35,13 @@ jobs:
           TASK=$(jq -er '.task' manifest.json)
           RUN_ID=$(jq -er '.run_id | tostring' manifest.json)
           REPO=$(jq -er '.repo' manifest.json)
+          SOURCE_SHA=$(jq -er '.sha' manifest.json)
 
           echo "MODEL=$MODEL" >> "$GITHUB_ENV"
           echo "TASK=$TASK" >> "$GITHUB_ENV"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
           echo "REPO=$REPO" >> "$GITHUB_ENV"
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
 
       - name: Validate source workflow run
         shell: bash
@@ -65,7 +51,7 @@ jobs:
           set -euo pipefail
 
           gh api "repos/${REPO}/actions/runs/${RUN_ID}" | jq -e '
-            .head_sha == env.MANIFEST_SHA and
+            .head_sha == env.SOURCE_SHA and
             .name == "Submit shipskip artifact" and
             .event == "workflow_dispatch" and
             .conclusion == "success"

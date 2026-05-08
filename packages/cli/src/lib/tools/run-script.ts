@@ -47,6 +47,13 @@ export function createRunScriptTool(workspace: string) {
           reject: false,
           timeout: timeoutMs,
           maxBuffer: 5_000_000,
+          stdin: "ignore",
+          forceKillAfterDelay: 1_000,
+          env: {
+            ...process.env,
+            CI: process.env.CI ?? "1",
+            npm_config_yes: process.env.npm_config_yes ?? "true",
+          },
         });
 
         return {
