@@ -10,7 +10,6 @@ const TASK_REGISTRY_PATH = fileURLToPath(
 );
 const TASK_PACKAGE_ROOT = path.dirname(TASK_REGISTRY_PATH);
 
-
 const TaskRegistryEntrySchema = z.object({
   template: z.string(),
   systemPrompt: z.string(),
