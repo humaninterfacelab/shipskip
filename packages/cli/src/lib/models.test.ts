@@ -4,7 +4,6 @@ import { getModel } from "./model";
 import { createGoogleModel } from "./models/google";
 import { createOpenAIModel } from "./models/openai";
 import { createOpenRouterModel } from "./models/openrouter";
-import { createPerplexityModel } from "./models/perplexity";
 
 describe("getModel", () => {
   test("rejects unsupported providers", () => {
@@ -17,21 +16,6 @@ describe("getModel", () => {
     expect(getModel("openai", "gpt-5.5").model).toBeDefined();
     expect(getModel("google", "gemini-3-pro").model).toBeDefined();
     expect(getModel("openrouter", "openai/gpt-5.5").model).toBeDefined();
-    expect(getModel("perplexity", "sonar-pro").model).toBeDefined();
-  });
-});
-
-describe("createPerplexityModel", () => {
-  test("omits provider options", () => {
-    expect(
-      createPerplexityModel({ name: "sonar-pro" }).providerOptions,
-    ).toBeUndefined();
-  });
-
-  test("rejects reasoning suffixes", () => {
-    expect(() =>
-      createPerplexityModel({ name: "sonar-reasoning-pro", reasoning: "high" }),
-    ).toThrow("Perplexity reasoning is selected by model name.");
   });
 });
 

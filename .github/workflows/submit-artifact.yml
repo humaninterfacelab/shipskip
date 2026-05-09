@@ -114,6 +114,14 @@ jobs:
           git commit -m "Submission for $SHIPSKIP_TASK" || exit 0
           git push
 
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failure-logs
+          if-no-files-found: ignore
+          path: ${{ env.SHIPSKIP_SESSION_DIR }}/logs.ndjson
+
       - name: Summary
         if: success()
         shell: bash

@@ -5,6 +5,8 @@ import { Command } from "commander";
 import { consola } from "consola";
 import * as c from "yoctocolors";
 
+import { compactMessages, getEstimatedTokens } from "../lib/compact-messages";
+import { getContextLength } from "../lib/context";
 import { getLogger } from "../lib/logger";
 import { getModel, parseModelProfile } from "../lib/model";
 import { getSessionDir } from "../lib/session";
@@ -27,6 +29,7 @@ type RunOptions = {
 };
 
 const TOTAL_AGENT_TIMEOUT_MS = 30 * 60_000;
+const CONTEXT_THRESHOLD = 0.7;
 
 async function createTools(appDir: string) {
   return {
@@ -104,6 +107,14 @@ const runAction = async (options: RunOptions) => {
 
     logger.debug({ providerOptions }, "Provider options resolved");
 
+    const contextLength = await getContextLength(provider, modelName);
+    if (contextLength)
+      logger.info({
+        contextLength,
+        threshold: contextLength * CONTEXT_THRESHOLD,
+      });
+    else logger.warn("Unable to resolve context length");
+
     consola.info(`Scaffolding ${c.cyan(task.template)}`);
 
     logger.debug({ template: task.template, appDir }, "Scaffolding template");
@@ -122,6 +133,55 @@ const runAction = async (options: RunOptions) => {
       maxRetries: 5,
       stopWhen: isLoopFinished(),
       tools,
+      prepareStep: async ({ messages, model }) => {
+        if (!contextLength) return {};
+
+        const estimatedTokens = getEstimatedTokens(messages);
+        const compactThreshold = contextLength * CONTEXT_THRESHOLD;
+
+        if (estimatedTokens < compactThreshold) {
+          return {};
+        }
+
+        logger.debug(
+          {
+            estimatedTokens,
+            contextLength,
+            threshold: CONTEXT_THRESHOLD,
+            compactThreshold,
+          },
+          "Compacting messages",
+        );
+
+        try {
+          const compactedMessages = await compactMessages(messages, {
+            summarizerModel: model,
+          });
+
+          consola.info(
+            `${c.bold("Compacted messages")} ${c.dim(
+              `${messages.length} -> ${compactedMessages.length} messages`,
+            )}`,
+          );
+
+          logger.info(
+            {
+              beforeCount: messages.length,
+              afterCount: compactedMessages.length,
+              estimatedTokensBefore: estimatedTokens,
+              estimatedTokensAfter: getEstimatedTokens(compactedMessages),
+            },
+            "Compacted messages",
+          );
+
+          return {
+            messages: compactedMessages,
+          };
+        } catch (error) {
+          logger.error({ error }, "Failed to compact messages");
+          return {};
+        }
+      },
     });
 
     logger.info(

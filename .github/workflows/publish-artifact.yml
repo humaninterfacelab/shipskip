@@ -11,6 +11,8 @@ on:
 permissions:
   actions: read
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   publish:
@@ -93,3 +95,13 @@ jobs:
             r2 object put shipskip-artifacts/${{ env.MANIFEST_SHA }}/manifest.json --file ./artifact/manifest.json
             r2 object put shipskip-artifacts/${{ env.MANIFEST_SHA }}/logs.ndjson --file ./artifact/logs.ndjson
             r2 object put shipskip-artifacts/${{ env.MANIFEST_SHA }}/app.tar.gz --file ./artifact/app.tar.gz
+
+      - name: Close source pull request
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.validate-source-run.outputs.pr_number }}
+        run: |
+          gh pr close "$PR_NUMBER" \
+            --repo "$REPO" \
+            --comment "🎉 Thanks for your submission! It has been published. This PR will be closed without merging."
