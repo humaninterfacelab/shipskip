@@ -1,8 +1,6 @@
 import { generateText, type LanguageModel, type ModelMessage } from "ai";
 
-
 const DEFAULT_KEEP_LAST_TURNS = 6;
-
 
 type CompactMessagesOptions = {
   summarizerModel: LanguageModel;
@@ -36,7 +34,10 @@ export async function compactMessages(
     return messages;
   }
 
-  const summary = await summarizeMessages(olderMessages, options.summarizerModel);
+  const summary = await summarizeMessages(
+    olderMessages,
+    options.summarizerModel,
+  );
 
   const summaryMessage: ModelMessage = {
     role: "user",

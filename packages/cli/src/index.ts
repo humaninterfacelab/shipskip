@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
-import consola from "consola";
-import * as c from "yoctocolors";
 
 import packageJson from "../package.json";
 import { runCommand } from "./commands/run";
@@ -10,13 +8,11 @@ import { getLogger } from "./lib/logger";
 import { createSession, getSessionDir } from "./lib/session";
 
 process.on("unhandledRejection", (reason) => {
-  consola.error("Unhandled rejection", reason);
   getLogger().error({ err: reason }, "Unhandled rejection");
   process.exit(1);
 });
 
 process.on("uncaughtException", (error) => {
-  consola.error("Uncaught exception", error);
   getLogger().error({ err: error }, "Uncaught exception");
   process.exit(1);
 });
@@ -36,9 +32,7 @@ program.hook("preAction", () => {
   const logger = getLogger();
   const sessionDir = getSessionDir();
 
-  consola.box(`${c.bold("shipskip")}\n\n${c.dim("session")}  ${sessionDir}`);
-
-  consola.warn(
+  logger.warn(
     "shipskip CLI can read files and execute commands. Use it in isolated environments.",
   );
 

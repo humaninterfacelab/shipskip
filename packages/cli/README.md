@@ -7,56 +7,39 @@ CLI package for `shipskip`. It runs frontend tasks by copying a template into a 
 ```bash
 shipskip run \
   --task <task-name> \
-  --model <provider>/<model>[#reasoning]
+  --model <openrouter-model-id>
 ```
 
 From the repository root during development:
 
 ```bash
-bun dev:cli run -t next-app/saas-landing-page -m openrouter/qwen/qwen3-coder:free
-bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/deepseek/deepseek-v4-flash#low
-bun dev:cli run -t next-app/software-engineer-portfolio -m google/gemini-3.1-flash-lite#low
-bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/openai/gpt-oss-120b:free
-bun dev:cli run -t next-app/software-engineer-portfolio -m perplexity/sonar-pro
-bun dev:cli run -t next-app/software-engineer-portfolio -m openrouter/google/gemini-3.1-flash-lite-preview#minimal
+bun dev:cli run -t next-app/saas-landing-page -m qwen/qwen3-coder:free
+
+bun dev:cli run -t next-app/software-engineer-portfolio -m deepseek/deepseek-v4-flash
 ```
 
 ## Options
 
 - `-t, --task <string>` - task name from `@shipskip/tasks`, such as `next-app/saas-landing-page`.
-- `-m, --model <string>` - model profile in `<provider>/<model>[#reasoning]` format.
+- `-m, --model <string>` - exact OpenRouter model id, passed directly to `@openrouter/ai-sdk-provider`.
 
-Supported providers are `openai`, `google`, `openrouter`, and `perplexity`.
+ShipSkip does not parse, normalize, or add reasoning options to model ids. Use the model id exactly as OpenRouter publishes it.
 
-## Model Profiles
+## Models
 
 Examples:
 
 ```text
-openai/gpt-5.5
-openai/gpt-5.5#high
-google/gemini-3-pro#medium
-openrouter/meta-llama/llama-3.1-8b-instruct:free#high
-perplexity/sonar-pro
-perplexity/sonar-reasoning-pro
+qwen/qwen3-coder:free
+openai/gpt-oss-120b:free
+google/gemini-3.1-flash-lite-preview
 ```
-
-Reasoning support depends on the provider:
-
-- OpenAI: `minimal`, `low`, `medium`, `high`.
-- Google: `minimal`, `low`, `medium`, `high`.
-- OpenRouter: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or a positive token count.
-- Perplexity: choose a reasoning model such as `sonar-reasoning` or `sonar-reasoning-pro`.
 
 ## Environment Variables
 
-Provider API keys are read by their AI SDK providers. Set the key for the provider you use, such as:
+Provider API keys are read by the OpenRouter AI SDK provider. Set:
 
-- `OPENAI_API_KEY`
 - `OPENROUTER_API_KEY`
-- `PERPLEXITY_API_KEY`
-- `GOOGLE_GENERATIVE_AI_API_KEY`
-- `GOOGLE_API_KEY`
 
 Session paths can be controlled with:
 

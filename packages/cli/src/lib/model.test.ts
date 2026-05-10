@@ -1,48 +1,25 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { parseModelProfile } from "./model";
+const openrouterMock = mock((modelId: string) => ({ modelId }));
 
-describe("parseModelProfile", () => {
-  test("parses provider and model name", () => {
-    expect(parseModelProfile("openai/gpt-5.5")).toEqual({
-      provider: "openai",
-      modelName: "gpt-5.5",
-      reasoning: undefined,
-    });
+mock.module("@openrouter/ai-sdk-provider", () => ({
+  openrouter: openrouterMock,
+}));
+
+const { getModel } = await import("./model");
+
+describe("getModel", () => {
+  beforeEach(() => {
+    openrouterMock.mockClear();
   });
 
-  test("parses slash-containing model names and reasoning", () => {
-    expect(
-      parseModelProfile(
-        "openrouter/meta-llama/llama-3.1-8b-instruct:free#high",
-      ),
-    ).toEqual({
-      provider: "openrouter",
-      modelName: "meta-llama/llama-3.1-8b-instruct:free",
-      reasoning: "high",
-    });
+  test("rejects empty model ids", () => {
+    expect(() => getModel("   ")).toThrow("Model id cannot be empty.");
   });
 
-  test("trims surrounding whitespace", () => {
-    expect(parseModelProfile("  google/gemini-3-pro  ")).toEqual({
-      provider: "google",
-      modelName: "gemini-3-pro",
-      reasoning: undefined,
-    });
-  });
+  test("passes trimmed model ids to OpenRouter", () => {
+    getModel(" qwen/qwen3-coder:free ");
 
-  test("rejects missing provider or model names", () => {
-    expect(() => parseModelProfile("gpt-5.5")).toThrow(
-      "Model must be in the format '<provider>/<model>[#reasoning]'.",
-    );
-    expect(() => parseModelProfile("openai/")).toThrow(
-      "Model must be in the format '<provider>/<model>[#reasoning]'.",
-    );
-  });
-
-  test("rejects empty reasoning suffixes", () => {
-    expect(() => parseModelProfile("openai/gpt-5.5#")).toThrow(
-      "Model reasoning cannot be empty when '#' is provided.",
-    );
+    expect(openrouterMock).toHaveBeenCalledWith("qwen/qwen3-coder:free");
   });
 });

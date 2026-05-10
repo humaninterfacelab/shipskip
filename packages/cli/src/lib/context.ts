@@ -14,21 +14,16 @@ type OpenRouterModel = {
   };
 };
 
-const logger = getLogger();
-
-export async function getContextLength(provider: string, modelName: string) {
+export async function getContextLength(modelId: string) {
   try {
-    const openRouterModelId =
-      provider === "openrouter" ? modelName : `${provider}/${modelName}`;
-
     const response = await fetch(OPENROUTER_MODELS_URL);
 
     const data = (await response.json()) as OpenRouterModelsResponse;
-    const match = data.data?.find((model) => model.id === openRouterModelId);
+    const match = data.data?.find((model) => model.id === modelId);
 
     return match?.context_length ?? match?.top_provider?.context_length;
   } catch (error) {
-    logger.error(error, "Context length lookup failed");
+    getLogger().error({ err: error }, "Context length lookup failed");
     return undefined;
   }
 }

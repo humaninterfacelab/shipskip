@@ -8,9 +8,9 @@ on:
         required: true
         default: next-app/software-engineer-portfolio
       model:
-        description: Model profile, for example 'openrouter/openai/gpt-oss-120b:free'
+        description: OpenRouter model id, for example 'openai/gpt-oss-120b:free'
         required: true
-        default: openrouter/google/gemini-3.1-flash-lite-preview#low
+        default: google/gemini-3.1-flash-lite-preview
 
 permissions:
   contents: write
@@ -67,25 +67,32 @@ jobs:
         run: |
           set -euo pipefail
 
+          SUBMISSION_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ARTIFACT_NAME="artifact-${SUBMISSION_ID}"
+
           jq -n \
+          --arg id "$SUBMISSION_ID" \
           --arg model "$SHIPSKIP_MODEL" \
           --arg task "$SHIPSKIP_TASK" \
-          --arg run_id "$GITHUB_RUN_ID" \
-          --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+          --argjson run_id "$GITHUB_RUN_ID" \
+          --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \
           --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          --arg artifact_name "$ARTIFACT_NAME" \
           --arg submitter "$GITHUB_ACTOR" \
           --arg repo "$GITHUB_REPOSITORY" \
-          --arg sha "$GITHUB_SHA" \
+          --arg source_sha "$GITHUB_SHA" \
           --arg ref "$GITHUB_REF_NAME" \
           '{
+            id: $id,
             model: $model,
             task: $task,
             run_id: $run_id,
             run_attempt: $run_attempt,
             run_url: $run_url,
+            artifact_name: $artifact_name,
             submitter: $submitter,
             repo: $repo,
-            sha: $sha,
+            source_sha: $source_sha,
             ref: $ref
           }' > manifest.json
 
@@ -103,14 +110,25 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: artifact
+          name: artifact-${{ github.run_id }}-${{ github.run_attempt }}
           overwrite: true
+          retention-days: 30
           path: artifact/*
 
-      - name: Commit manifest.json
+      - name: Append submission record
         shell: bash
         run: |
-          git add manifest.json
+          set -euo pipefail
+
+          touch submissions.jsonl
+          jq -c . manifest.json >> submissions.jsonl
+
+      - name: Commit submission record
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add submissions.jsonl
           git commit -m "Submission for $SHIPSKIP_TASK" || exit 0
           git push
 
@@ -126,14 +144,20 @@ jobs:
         if: success()
         shell: bash
         run: |
-          {
-            echo "## Submission for $SHIPSKIP_TASK"
-            echo
-            echo "Copy these details into the PR description:"
-            echo
+          set -euo pipefail
 
-            jq -r '
-              to_entries[]
-              | "- **\(.key):** `\(.value)`"
-            ' manifest.json
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          {
+            echo "## Submission ready"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Task | \`$SHIPSKIP_TASK\` |"
+            echo "| Model | \`$SHIPSKIP_MODEL\` |"
+            echo "| Submitter | \`$GITHUB_ACTOR\` |"
+            echo "| Source ref | \`$GITHUB_REF_NAME\` |"
+            echo "| Source SHA | \`$GITHUB_SHA\` |"
+            echo "| Run | [$GITHUB_RUN_ID]($RUN_URL) |"
+            echo "| Artifact | [artifact]($RUN_URL#artifacts) |"
           } >> "$GITHUB_STEP_SUMMARY"

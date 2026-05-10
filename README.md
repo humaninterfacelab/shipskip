@@ -10,12 +10,13 @@ The CLI copies a template into a temporary session directory, gives an agent a t
 - `packages/tasks` - packaged task registry, prompts, and templates used by the CLI.
 - `apps/web` - Next.js web app.
 - `.github/workflows` - CI checks plus artifact submission and publishing flows.
+- `submissions.jsonl` - append-only submission queue; publish by labeling a submission PR.
 
 ## Requirements
 
 - Bun
 - Git
-- Provider API key for the model you run, such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, or `GOOGLE_API_KEY`
+- `OPENROUTER_API_KEY` for the model you run
 
 ## Setup
 
@@ -32,12 +33,18 @@ Run the sample SaaS landing page task against the Next.js template:
 ```bash
 bun run dev:cli -- run \
   --task next-app/saas-landing-page \
-  --model openai/gpt-5.5#high
+  --model qwen/qwen3-coder:free
 ```
 
 The command writes the generated app to the session directory. By default sessions are created under `<tmp>/shipskip/<timestamp>`, or you can set `SHIPSKIP_SESSION_DIR` to choose a fixed location.
 
-For CLI options, model profile syntax, and session environment variables, see [`packages/cli/README.md`](packages/cli/README.md).
+For CLI options, OpenRouter model ids, and session environment variables, see [`packages/cli/README.md`](packages/cli/README.md).
+
+## Submissions
+
+Run `Submit shipskip artifact` from a non-default branch or fork. The workflow uploads the generated artifact, appends one record to `submissions.jsonl`, and pushes that record to the source branch.
+
+Open a PR containing the new `submissions.jsonl` line. Adding the `publish` label to the PR triggers `Publish shipskip artifact`, which validates the referenced workflow run, downloads the artifact, deploys the static build, stores the manifest, logs, and app archive in R2, and writes the Pages and R2 URLs back to the submission record.
 
 ## Development Checks
 

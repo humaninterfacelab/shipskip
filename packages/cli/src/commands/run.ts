@@ -2,13 +2,11 @@ import path from "node:path";
 
 import { isLoopFinished, ToolLoopAgent } from "ai";
 import { Command } from "commander";
-import { consola } from "consola";
-import * as c from "yoctocolors";
 
 import { compactMessages, getEstimatedTokens } from "../lib/compact-messages";
 import { getContextLength } from "../lib/context";
 import { getLogger } from "../lib/logger";
-import { getModel, parseModelProfile } from "../lib/model";
+import { getModel } from "../lib/model";
 import { getSessionDir } from "../lib/session";
 import {
   buildApp,
@@ -18,10 +16,9 @@ import {
 } from "../lib/task";
 import { createCrudFileTools } from "../lib/tools/crud-files";
 import { createGitTool } from "../lib/tools/git";
-import { createListFileTool } from "../lib/tools/list-files";
+import { createGlobTool } from "../lib/tools/glob";
 import { createRipgrepTool } from "../lib/tools/ripgrep";
 import { createRunScriptTool } from "../lib/tools/run-script";
-import { summarizeValue, truncate } from "../lib/utils";
 
 type RunOptions = {
   task: string;
@@ -31,15 +28,13 @@ type RunOptions = {
 const TOTAL_AGENT_TIMEOUT_MS = 30 * 60_000;
 const CONTEXT_THRESHOLD = 0.7;
 
-async function createTools(appDir: string) {
+function createTools(appDir: string) {
   return {
-    tools: {
-      ...createCrudFileTools(appDir),
-      ...createGitTool(appDir),
-      ...createListFileTool(appDir),
-      ...createRipgrepTool(appDir),
-      ...createRunScriptTool(appDir),
-    },
+    ...createCrudFileTools(appDir),
+    ...createGitTool(appDir),
+    ...createGlobTool(appDir),
+    ...createRipgrepTool(appDir),
+    ...createRunScriptTool(appDir),
   };
 }
 
@@ -63,93 +58,62 @@ const runAction = async (options: RunOptions) => {
   const logger = getLogger();
 
   try {
-    consola.start(c.bold("Running shipskip task"));
     logger.info({ task: options.task, model: options.model }, "Run started");
 
     const sessionDir = getSessionDir();
     const appDir = path.join(sessionDir, "app");
 
-    logger.debug({ sessionDir, appDir }, "Resolved run directories");
+    logger.debug({ sessionDir, appDir }, "Resolved session directories");
 
     const { task, prompt, systemPrompt } = await resolveTask(options.task);
 
-    consola.info(
-      `${c.bold(options.task)} ${c.dim("using template")} ${c.cyan(task.template)}`,
-    );
-    consola.debug(`${c.dim("prompt")} ${truncate(prompt, 150)}`);
-    consola.debug(`${c.dim("system")} ${truncate(systemPrompt, 150)}`);
-
     logger.info(
-      {
-        task: options.task,
-        template: task.template,
-      },
+      { task: options.task, template: task.template },
       "Task resolved",
     );
 
-    logger.debug(
-      {
-        promptLength: prompt.length,
-        systemPromptLength: systemPrompt.length,
-      },
-      "Prompts resolved",
-    );
+    logger.debug({ prompt, systemPrompt }, "Prompts resolved");
 
-    const { provider, modelName, reasoning } = parseModelProfile(options.model);
+    const modelId = options.model.trim();
 
-    consola.info(
-      `${c.bold(provider)}/${modelName}${reasoning ? c.dim(`#${reasoning}`) : ""}`,
-    );
+    logger.info({ modelId }, "Model resolved");
 
-    logger.info({ provider, modelName, reasoning }, "Model resolved");
+    const model = getModel(modelId);
 
-    const { model, providerOptions } = getModel(provider, modelName, reasoning);
-
-    logger.debug({ providerOptions }, "Provider options resolved");
-
-    const contextLength = await getContextLength(provider, modelName);
+    const contextLength = await getContextLength(modelId);
     if (contextLength)
-      logger.info({
-        contextLength,
-        threshold: contextLength * CONTEXT_THRESHOLD,
-      });
+      logger.info(
+        {
+          contextLength,
+          threshold: contextLength * CONTEXT_THRESHOLD,
+        },
+        "Context length resolved",
+      );
     else logger.warn("Unable to resolve context length");
 
-    consola.info(`Scaffolding ${c.cyan(task.template)}`);
-
-    logger.debug({ template: task.template, appDir }, "Scaffolding template");
+    logger.info({ template: task.template, appDir }, "Scaffolding template");
     await scaffoldTemplate(task.template, appDir);
+    logger.info({ template: task.template, appDir }, "Template scaffolded");
 
-    logger.info({ template: task.template }, "Template scaffolded");
-
-    const { tools } = await createTools(appDir);
-
+    const tools = createTools(appDir);
     logger.debug({ tools: Object.keys(tools) }, "Agent tools created");
 
     const agent = new ToolLoopAgent({
       model,
-      providerOptions,
       instructions: systemPrompt,
       maxRetries: 5,
-      stopWhen: isLoopFinished(),
       tools,
+      stopWhen: isLoopFinished(),
       prepareStep: async ({ messages, model }) => {
         if (!contextLength) return {};
 
         const estimatedTokens = getEstimatedTokens(messages);
         const compactThreshold = contextLength * CONTEXT_THRESHOLD;
 
-        if (estimatedTokens < compactThreshold) {
-          return {};
-        }
+        if (estimatedTokens < compactThreshold) return {};
 
         logger.debug(
-          {
-            estimatedTokens,
-            contextLength,
-            threshold: CONTEXT_THRESHOLD,
-            compactThreshold,
-          },
+          { estimatedTokens, contextLength, compactThreshold },
           "Compacting messages",
         );
 
@@ -157,22 +121,6 @@ const runAction = async (options: RunOptions) => {
           const compactedMessages = await compactMessages(messages, {
             summarizerModel: model,
           });
-
-          consola.info(
-            `${c.bold("Compacted messages")} ${c.dim(
-              `${messages.length} -> ${compactedMessages.length} messages`,
-            )}`,
-          );
-
-          logger.info(
-            {
-              beforeCount: messages.length,
-              afterCount: compactedMessages.length,
-              estimatedTokensBefore: estimatedTokens,
-              estimatedTokensAfter: getEstimatedTokens(compactedMessages),
-            },
-            "Compacted messages",
-          );
 
           return {
             messages: compactedMessages,
@@ -191,94 +139,67 @@ const runAction = async (options: RunOptions) => {
       },
       "Agent created",
     );
-    consola.info(
-      `Agent created ${c.dim(`timeout ${TOTAL_AGENT_TIMEOUT_MS / 60_000}m`)}`,
-    );
 
     const result = await agent.stream({
       prompt,
       timeout: { totalMs: TOTAL_AGENT_TIMEOUT_MS },
     });
 
-    logger.debug("Agent stream started");
+    logger.info("Agent stream started");
 
-    let outputType = "";
     for await (const part of result.fullStream) {
       logger.trace({ part }, "Agent stream event");
-
-      if (outputType !== part.type) {
-        process.stdout.write("\n");
-        outputType = part.type;
-      }
 
       switch (part.type) {
         case "text-delta": {
           logger.trace({ text: part.text }, "text-delta");
-          process.stdout.write(part.text);
           break;
         }
 
         case "reasoning-delta": {
           logger.trace({ text: part.text }, "reasoning-delta");
-          process.stdout.write(c.dim(part.text));
           break;
         }
 
         case "tool-call": {
           const toolName = part.toolName ?? "unknown";
 
-          logger.debug({ toolName, input: part.input }, "tool-call");
-          consola.info(
-            `${c.bold(toolName)} ${c.dim(summarizeValue(part.input) ?? "")}`,
-          );
+          logger.debug({ toolName }, "Tool call started");
           break;
         }
 
         case "tool-result": {
           const toolName = part.toolName ?? "unknown";
 
-          logger.debug({ toolName, input: part.input }, "tool-result");
-          consola.debug(
-            `${c.bold(toolName)} ${c.dim(summarizeValue(part.input) ?? "")}`,
-          );
+          logger.debug({ toolName }, "Tool call finished");
           break;
         }
 
         case "finish-step": {
           logger.debug({ finishReason: part.finishReason }, "finish-step");
-          consola.debug(`${c.dim("step finished")} ${part.finishReason}`);
           break;
         }
 
         case "finish": {
-          consola.success(
-            `\nAgent loop finished`,
-            c.dim(summarizeValue(part.totalUsage) ?? ""),
-          );
           logger.info({ usage: part.totalUsage }, "finish");
           break;
         }
 
         case "error": {
           logger.error({ err: part.error }, "Agent stream error");
-          consola.error("Stream failed", part.error);
           throw part.error;
         }
       }
     }
 
-    logger.debug("Agent stream closed");
+    logger.info("Agent stream closed");
 
-    consola.info("Building app...");
-    logger.debug({ sessionDir, appDir }, "Building app");
+    logger.info({ sessionDir, appDir }, "Building app");
     await buildApp(sessionDir, appDir);
     logger.info("App built");
 
     logger.info("Run completed");
-
-    consola.success(c.bold("Task completed!"));
   } catch (error) {
-    consola.error("Execution failed", error);
     logger.error({ err: error }, "Execution failed");
     process.exitCode = 1;
   }
@@ -294,6 +215,6 @@ export const runCommand = new Command("run")
   )
   .requiredOption(
     "-m, --model <string>",
-    "model profile eg. 'openai/gpt-5.5', 'openai/gpt-5.5#high', or 'openrouter/meta-llama/llama-3.1-8b-instruct:free#high'",
+    "exact OpenRouter model id, such as 'qwen/qwen3-coder:free'",
   )
   .action(runAction);
