@@ -115,19 +115,12 @@ jobs:
           retention-days: 30
           path: artifact/*
 
-      - name: Append submission record
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          touch submissions.jsonl
-          jq -c . manifest.json >> submissions.jsonl
-
       - name: Commit submission record
         shell: bash
         run: |
           set -euo pipefail
 
+          jq -c . manifest.json >> submissions.jsonl
           git add submissions.jsonl
           git commit -m "Submission for $SHIPSKIP_TASK" || exit 0
           git push

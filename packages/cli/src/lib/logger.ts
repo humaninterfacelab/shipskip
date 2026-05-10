@@ -10,6 +10,8 @@ let logger: pino.Logger | undefined;
 export function getLogger() {
   if (logger) return logger;
 
+  const level = "trace";
+
   const fileStream = pino.destination({
     dest: path.join(getSessionDir(), "logs.ndjson"),
     mkdir: true,
@@ -18,12 +20,12 @@ export function getLogger() {
 
   logger = pino(
     {
-      level: "trace",
+      level,
     },
     pino.multistream([
-      { level: "trace", stream: fileStream },
+      { level, stream: fileStream },
       {
-        level: "debug",
+        level,
         stream: pretty({
           colorize: true,
           destination: process.stderr,
