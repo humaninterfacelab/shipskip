@@ -70,9 +70,11 @@ jobs:
           SUBMISSION_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           ARTIFACT_NAME="artifact-${SUBMISSION_ID}"
 
+          SUBMISSION_MODEL="${SHIPSKIP_MODEL%%:*}"
+
           jq -n \
           --arg id "$SUBMISSION_ID" \
-          --arg model "$SHIPSKIP_MODEL" \
+          --arg model "$SUBMISSION_MODEL" \
           --arg task "$SHIPSKIP_TASK" \
           --argjson run_id "$GITHUB_RUN_ID" \
           --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \

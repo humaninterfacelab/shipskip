@@ -4,7 +4,6 @@ import { tool } from "ai";
 import { execa } from "execa";
 import { z } from "zod";
 
-import { getLogger } from "../logger";
 import { resolveSafePath, truncate } from "../utils";
 
 const DENIED_ARGS = [
@@ -45,14 +44,9 @@ export function createGitTool(workspace: string) {
       }),
 
       execute: async ({ args, timeoutMs }) => {
-        const logger = getLogger();
-
         validateGitArgs(cwd, args);
 
-        const startedAt = Date.now();
         const command = `git ${args.join(" ")}`;
-
-        logger.debug({ command, timeoutMs }, "git started");
 
         const result = await execa("git", args, {
           cwd,
@@ -60,24 +54,6 @@ export function createGitTool(workspace: string) {
           timeout: timeoutMs,
           maxBuffer: 2_000_000,
         });
-
-        logger.debug(
-          {
-            command,
-            exitCode: result.exitCode,
-            failed: result.failed,
-            timedOut: result.timedOut,
-            durationMs: Date.now() - startedAt,
-            stdoutLength: result.stdout.length,
-            stderrLength: result.stderr.length,
-          },
-          "git finished",
-        );
-
-        logger.trace(
-          { command, stdout: result.stdout, stderr: result.stderr },
-          "git output",
-        );
 
         return {
           command,

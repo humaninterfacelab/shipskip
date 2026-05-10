@@ -14,6 +14,7 @@ From the repository root during development:
 
 ```bash
 bun dev:cli run -t next-app/saas-landing-page -m qwen/qwen3-coder:free
+bun dev:cli run -t next-app/saas-landing-page -m google/gemini-3.1-flash-lite
 
 bun dev:cli run -t next-app/software-engineer-portfolio -m deepseek/deepseek-v4-flash
 ```

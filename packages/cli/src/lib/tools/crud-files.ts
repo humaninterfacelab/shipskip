@@ -5,7 +5,6 @@ import { tool } from "ai";
 import { applyPatch, parsePatch } from "diff";
 import { z } from "zod";
 
-import { getLogger } from "../logger";
 import { resolveSafePath } from "../utils";
 
 export function createCrudFileTools(workspace: string) {
@@ -29,11 +28,6 @@ export function createReadFilesTool(workspace: string) {
     }),
 
     execute: async ({ paths }) => {
-      const logger = getLogger();
-      const startedAt = Date.now();
-
-      logger.debug({ paths }, "readFiles started");
-
       const result = await Promise.all(
         paths.map(async (targetPath) => {
           const resolvedPath = resolveSafePath(workspace, targetPath);
@@ -44,19 +38,6 @@ export function createReadFilesTool(workspace: string) {
             content,
           };
         }),
-      );
-
-      logger.debug(
-        {
-          paths,
-          count: result.length,
-          durationMs: Date.now() - startedAt,
-          totalBytes: result.reduce(
-            (sum, file) => sum + file.content.length,
-            0,
-          ),
-        },
-        "readFiles finished",
       );
 
       return result;
@@ -80,19 +61,6 @@ export function createWriteFilesTool(workspace: string) {
     }),
 
     execute: async ({ files }) => {
-      const logger = getLogger();
-      const startedAt = Date.now();
-      const paths = files.map((file) => file.path);
-
-      logger.debug(
-        {
-          paths,
-          count: files.length,
-          totalBytes: files.reduce((sum, file) => sum + file.content.length, 0),
-        },
-        "writeFiles started",
-      );
-
       const result = await Promise.all(
         files.map(async ({ path: targetPath, content }) => {
           const resolvedPath = resolveSafePath(workspace, targetPath);
@@ -105,11 +73,6 @@ export function createWriteFilesTool(workspace: string) {
             path: targetPath,
           };
         }),
-      );
-
-      logger.debug(
-        { paths, count: result.length, durationMs: Date.now() - startedAt },
-        "writeFiles finished",
       );
 
       return result;
@@ -133,11 +96,6 @@ export function createMoveFilesTool(workspace: string) {
     }),
 
     execute: async ({ moves }) => {
-      const logger = getLogger();
-      const startedAt = Date.now();
-
-      logger.debug({ moves, count: moves.length }, "moveFiles started");
-
       const result = await Promise.all(
         moves.map(async ({ from, to }) => {
           const sourcePath = resolveSafePath(workspace, from);
@@ -152,11 +110,6 @@ export function createMoveFilesTool(workspace: string) {
             to,
           };
         }),
-      );
-
-      logger.debug(
-        { moves, count: result.length, durationMs: Date.now() - startedAt },
-        "moveFiles finished",
       );
 
       return result;
@@ -174,14 +127,6 @@ export function createDeleteFilesTool(workspace: string) {
     }),
 
     execute: async ({ paths, recursive }) => {
-      const logger = getLogger();
-      const startedAt = Date.now();
-
-      logger.debug(
-        { paths, recursive, count: paths.length },
-        "deleteFiles started",
-      );
-
       const result = await Promise.all(
         paths.map(async (targetPath) => {
           const resolvedPath = resolveSafePath(workspace, targetPath);
@@ -196,16 +141,6 @@ export function createDeleteFilesTool(workspace: string) {
             deleted: targetPath,
           };
         }),
-      );
-
-      logger.debug(
-        {
-          paths,
-          recursive,
-          count: result.length,
-          durationMs: Date.now() - startedAt,
-        },
-        "deleteFiles finished",
       );
 
       return result;
@@ -223,8 +158,6 @@ export function createApplyPatchTool(workspace: string) {
     }),
 
     execute: async ({ patch, dryRun }) => {
-      const logger = getLogger();
-      const startedAt = Date.now();
       const filePatches = parsePatch(patch);
 
       const writes: Array<{
@@ -268,11 +201,6 @@ export function createApplyPatchTool(workspace: string) {
 
       const changed = writes.map((write) => write.path);
 
-      logger.debug(
-        { changed, count: changed.length, dryRun },
-        "applyPatch started",
-      );
-
       if (!dryRun) {
         for (const write of writes) {
           if (write.content === null) {
@@ -286,16 +214,6 @@ export function createApplyPatchTool(workspace: string) {
           }
         }
       }
-
-      logger.debug(
-        {
-          changed,
-          count: changed.length,
-          dryRun,
-          durationMs: Date.now() - startedAt,
-        },
-        "applyPatch finished",
-      );
 
       return {
         success: true,

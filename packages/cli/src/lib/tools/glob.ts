@@ -4,8 +4,6 @@ import { tool } from "ai";
 import { globby } from "globby";
 import { z } from "zod";
 
-import { getLogger } from "../logger";
-
 export function createGlobTool(workspace: string) {
   const resolvedWorkspace = path.resolve(workspace);
 
@@ -51,21 +49,6 @@ export function createGlobTool(workspace: string) {
         onlyFiles,
         onlyDirectories,
       }) => {
-        const logger = getLogger();
-        const startedAt = Date.now();
-
-        logger.debug(
-          {
-            patterns,
-            gitIgnore,
-            includeDot,
-            depth,
-            onlyFiles,
-            onlyDirectories,
-          },
-          "glob started",
-        );
-
         const paths = await globby(patterns, {
           cwd: resolvedWorkspace,
           gitignore: gitIgnore,
@@ -76,11 +59,6 @@ export function createGlobTool(workspace: string) {
           onlyFiles,
           onlyDirectories,
         });
-
-        logger.debug(
-          { patterns, count: paths.length, durationMs: Date.now() - startedAt },
-          "glob finished",
-        );
 
         return {
           paths,

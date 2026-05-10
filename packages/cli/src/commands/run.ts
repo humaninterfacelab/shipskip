@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { isLoopFinished, ToolLoopAgent } from "ai";
 import { Command } from "commander";
+import pc from "picocolors";
 
 import { compactMessages, getEstimatedTokens } from "../lib/compact-messages";
 import { getContextLength } from "../lib/context";
@@ -19,6 +20,7 @@ import { createGitTool } from "../lib/tools/git";
 import { createGlobTool } from "../lib/tools/glob";
 import { createRipgrepTool } from "../lib/tools/ripgrep";
 import { createRunScriptTool } from "../lib/tools/run-script";
+import { truncate } from "../lib/utils";
 
 type RunOptions = {
   task: string;
@@ -26,7 +28,7 @@ type RunOptions = {
 };
 
 const TOTAL_AGENT_TIMEOUT_MS = 30 * 60_000;
-const CONTEXT_THRESHOLD = 0.7;
+const CONTEXT_THRESHOLD = 0.5;
 
 function createTools(appDir: string) {
   return {
@@ -81,15 +83,9 @@ const runAction = async (options: RunOptions) => {
     const model = getModel(modelId);
 
     const contextLength = await getContextLength(modelId);
-    if (contextLength)
-      logger.info(
-        {
-          contextLength,
-          threshold: contextLength * CONTEXT_THRESHOLD,
-        },
-        "Context length resolved",
-      );
-    else logger.warn("Unable to resolve context length");
+    if (contextLength) {
+      logger.info({ contextLength }, "Context length resolved");
+    } else logger.warn("Unable to resolve context length");
 
     logger.info({ template: task.template, appDir }, "Scaffolding template");
     await scaffoldTemplate(task.template, appDir);
@@ -108,11 +104,11 @@ const runAction = async (options: RunOptions) => {
         if (!contextLength) return {};
 
         const estimatedTokens = getEstimatedTokens(messages);
-        const compactThreshold = contextLength * CONTEXT_THRESHOLD;
+        const compactThreshold = Math.ceil(contextLength * CONTEXT_THRESHOLD);
 
         if (estimatedTokens < compactThreshold) return {};
 
-        logger.debug(
+        logger.info(
           { estimatedTokens, contextLength, compactThreshold },
           "Compacting messages",
         );
@@ -121,6 +117,8 @@ const runAction = async (options: RunOptions) => {
           const compactedMessages = await compactMessages(messages, {
             summarizerModel: model,
           });
+
+          logger.trace({ compactMessages });
 
           return {
             messages: compactedMessages,
@@ -147,46 +145,50 @@ const runAction = async (options: RunOptions) => {
 
     logger.info("Agent stream started");
 
+    let currentPartType = "";
+
     for await (const part of result.fullStream) {
       logger.trace({ part }, "Agent stream event");
 
+      if (currentPartType !== part.type) {
+        process.stderr.write("\n");
+        currentPartType = part.type;
+      }
+
       switch (part.type) {
         case "text-delta": {
-          logger.trace({ text: part.text }, "text-delta");
+          process.stdout.write(part.text);
           break;
         }
 
         case "reasoning-delta": {
-          logger.trace({ text: part.text }, "reasoning-delta");
+          process.stderr.write(pc.dim(part.text));
           break;
         }
 
         case "tool-call": {
           const toolName = part.toolName ?? "unknown";
-
-          logger.debug({ toolName }, "Tool call started");
+          const input = truncate(JSON.stringify(part.input ?? "unknown"));
+          process.stderr.write(pc.yellow(`Tool call: ${toolName}`));
+          process.stderr.write(pc.dim(`\nInput: ${input}`));
           break;
         }
 
         case "tool-result": {
-          const toolName = part.toolName ?? "unknown";
-
-          logger.debug({ toolName }, "Tool call finished");
-          break;
-        }
-
-        case "finish-step": {
-          logger.debug({ finishReason: part.finishReason }, "finish-step");
+          const result = truncate(JSON.stringify(part.output ?? "unknown"));
+          process.stderr.write(pc.dim(`Output: ${result}`));
           break;
         }
 
         case "finish": {
-          logger.info({ usage: part.totalUsage }, "finish");
+          logger.info({ usage: part.totalUsage });
           break;
         }
 
         case "error": {
-          logger.error({ err: part.error }, "Agent stream error");
+          process.stderr.write(
+            pc.red(JSON.stringify(part.error ?? "Unknown Error")),
+          );
           throw part.error;
         }
       }

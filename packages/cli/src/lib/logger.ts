@@ -25,7 +25,7 @@ export function getLogger() {
     pino.multistream([
       { level, stream: fileStream },
       {
-        level,
+        level: "debug",
         stream: pretty({
           colorize: true,
           destination: process.stderr,

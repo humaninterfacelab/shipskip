@@ -5,7 +5,6 @@ import { tool } from "ai";
 import { execa } from "execa";
 import { z } from "zod";
 
-import { getLogger } from "../logger";
 import { truncate } from "../utils";
 
 export function createRipgrepTool(workspace: string) {
@@ -72,39 +71,12 @@ export function createRipgrepTool(workspace: string) {
         args.push(pattern);
         args.push(".");
 
-        const logger = getLogger();
-        const startedAt = Date.now();
-
-        logger.debug(
-          { pattern, glob, caseSensitive, includeDot, maxResults },
-          "ripgrep started",
-        );
-
         const result = await execa(rgPath, args, {
           cwd: resolvedWorkspace,
           maxBuffer: 1_000_000,
           reject: false,
           timeout: 30_000,
         });
-
-        logger.debug(
-          {
-            pattern,
-            glob,
-            exitCode: result.exitCode,
-            failed: result.failed,
-            timedOut: result.timedOut,
-            durationMs: Date.now() - startedAt,
-            stdoutLength: result.stdout.length,
-            stderrLength: result.stderr.length,
-          },
-          "ripgrep finished",
-        );
-
-        logger.trace(
-          { pattern, glob, stdout: result.stdout, stderr: result.stderr },
-          "ripgrep output",
-        );
 
         return {
           exitCode: result.exitCode,

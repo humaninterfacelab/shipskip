@@ -4,7 +4,6 @@ import { tool } from "ai";
 import { execa } from "execa";
 import { z } from "zod";
 
-import { getLogger } from "../logger";
 import { truncate } from "../utils";
 
 const ALLOWED_COMMANDS = new Set([
@@ -43,11 +42,7 @@ export function createRunScriptTool(workspace: string) {
       execute: async ({ command, args, timeoutMs }) => {
         validateCommand(command, args);
 
-        const logger = getLogger();
-        const startedAt = Date.now();
         const commandLine = [command, ...args].join(" ");
-
-        logger.debug({ command: commandLine, timeoutMs }, "runScript started");
 
         const result = await execa(command, args, {
           cwd: resolvedWorkspace,
@@ -62,24 +57,6 @@ export function createRunScriptTool(workspace: string) {
             npm_config_yes: process.env.npm_config_yes ?? "true",
           },
         });
-
-        logger.debug(
-          {
-            command: commandLine,
-            exitCode: result.exitCode,
-            failed: result.failed,
-            timedOut: result.timedOut,
-            durationMs: Date.now() - startedAt,
-            stdoutLength: result.stdout.length,
-            stderrLength: result.stderr.length,
-          },
-          "runScript finished",
-        );
-
-        logger.trace(
-          { command: commandLine, stdout: result.stdout, stderr: result.stderr },
-          "runScript output",
-        );
 
         return {
           command: commandLine,

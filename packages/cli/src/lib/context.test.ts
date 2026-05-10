@@ -26,6 +26,20 @@ describe("getContextLength", () => {
     );
   });
 
+  test("ignores model id suffixes when matching context length", async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [{ id: "qwen/qwen3-coder", context_length: 222 }],
+        }),
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(getContextLength("qwen/qwen3-coder:free")).resolves.toBe(
+      222,
+    );
+  });
+
   test("falls back to top provider context length", async () => {
     globalThis.fetch = mock(async () => {
       return new Response(
