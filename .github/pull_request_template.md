@@ -1,6 +1,6 @@
 ## Summary
 
-- 
+-
 
 ## Validation
 
@@ -14,9 +14,9 @@ If this is a submission PR, include:
 
 - Task:
 - Model:
-- Run URL: 
-- Artifact: 
+- Run URL:
+- Artifact:
 
 ## Reviewer Notes
 
-- 
+-

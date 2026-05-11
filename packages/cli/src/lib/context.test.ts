@@ -21,9 +21,7 @@ describe("getContextLength", () => {
       );
     }) as unknown as typeof fetch;
 
-    await expect(getContextLength("qwen/qwen3-coder:free")).resolves.toBe(
-      222,
-    );
+    await expect(getContextLength("qwen/qwen3-coder:free")).resolves.toBe(222);
   });
 
   test("ignores model id suffixes when matching context length", async () => {
@@ -35,9 +33,7 @@ describe("getContextLength", () => {
       );
     }) as unknown as typeof fetch;
 
-    await expect(getContextLength("qwen/qwen3-coder:free")).resolves.toBe(
-      222,
-    );
+    await expect(getContextLength("qwen/qwen3-coder:free")).resolves.toBe(222);
   });
 
   test("falls back to top provider context length", async () => {
