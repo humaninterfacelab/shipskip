@@ -102,6 +102,7 @@ jobs:
             all(.[];
               type == "object" and
               (.id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
+              (.artifact_name == ("artifact-" + .id)) and
               (.source_sha | type == "string" and test("^[0-9a-f]{40}$")) and
               ((.run_id | type) == "number" and .run_id > 0 and (.run_id | floor) == .run_id) and
               ((.run_attempt | type) == "number" and .run_attempt > 0 and (.run_attempt | floor) == .run_attempt)
@@ -133,6 +134,7 @@ jobs:
             RUN_ID=$(jq -r '.run_id' submission.json)
             RUN_ATTEMPT=$(jq -r '.run_attempt' submission.json)
             SOURCE_SHA=$(jq -r '.source_sha' submission.json)
+            ARTIFACT_NAME=$(jq -r '.artifact_name' submission.json)
             ARTIFACT_DIR="./artifacts/${SUBMISSION_ID}"
 
             gh api "repos/${HEAD_REPO}/actions/runs/${RUN_ID}" | jq -e \
@@ -147,7 +149,7 @@ jobs:
 
             rm -rf "$ARTIFACT_DIR"
             mkdir -p "$ARTIFACT_DIR"
-            gh run download "$RUN_ID" --repo "$HEAD_REPO" --name "$SUBMISSION_ID" --dir "$ARTIFACT_DIR"
+            gh run download "$RUN_ID" --repo "$HEAD_REPO" --name "$ARTIFACT_NAME" --dir "$ARTIFACT_DIR"
 
             for file in manifest.json logs.ndjson app.tar.gz; do
               test -f "${ARTIFACT_DIR}/${file}"
@@ -157,6 +159,7 @@ jobs:
 
             jq -e --slurpfile sub submission.json '
               .id == $sub[0].id and
+              .artifact_name == $sub[0].artifact_name and
               .run_id == $sub[0].run_id and
               .source_sha == $sub[0].source_sha
             ' "${ARTIFACT_DIR}/manifest.json" > /dev/null

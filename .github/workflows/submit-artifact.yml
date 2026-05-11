@@ -64,6 +64,7 @@ jobs:
       SHIPSKIP_TASK: ${{ matrix.task }}
       SHIPSKIP_MODEL: ${{ matrix.model }}
       SUBMISSION_ID: ${{ matrix.submission_id }}
+      ARTIFACT_NAME: artifact-${{ matrix.submission_id }}
 
 
     steps:
@@ -109,6 +110,7 @@ jobs:
             --argjson run_id "$GITHUB_RUN_ID" \
             --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \
             --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --arg artifact_name "$ARTIFACT_NAME" \
             --arg submitter "$GITHUB_ACTOR" \
             --arg source_sha "$GITHUB_SHA" \
             --arg ref "$GITHUB_REF_NAME" \
@@ -119,6 +121,7 @@ jobs:
               run_id: $run_id,
               run_attempt: $run_attempt,
               run_url: $run_url,
+              artifact_name: $artifact_name,
               submitter: $submitter,
               source_sha: $source_sha,
               ref: $ref
@@ -140,7 +143,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.SUBMISSION_ID }}
+          name: ${{ env.ARTIFACT_NAME }}
           overwrite: true
           retention-days: 90
           path: artifact/*
@@ -231,7 +234,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          git pull --ff-only origin "$GITHUB_REF_NAME"
+
           jq -c . ./submission-records/*.json >> submissions.jsonl
           git add submissions.jsonl
           git commit -m "Add shipskip submissions" || exit 0
-          git push
+          git push origin "HEAD:${GITHUB_REF_NAME}"
