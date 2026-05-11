@@ -66,7 +66,6 @@ jobs:
       SUBMISSION_ID: ${{ matrix.submission_id }}
       ARTIFACT_NAME: artifact-${{ matrix.submission_id }}
 
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -172,7 +171,7 @@ jobs:
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
           {
-            echo "## Submission ready"
+            echo "### Submission ready"
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
@@ -236,7 +235,16 @@ jobs:
 
           git pull --ff-only origin "$GITHUB_REF_NAME"
 
-          jq -c . ./submission-records/*.json >> submissions.jsonl
+          jq -s -c --slurpfile existing submissions.jsonl '
+            ($existing | map(.id)) as $existing_ids |
+            .[] | select((.id as $id | $existing_ids | index($id)) | not)
+          ' ./submission-records/*.json > submissions-to-append.jsonl
+
+          if [[ ! -s submissions-to-append.jsonl ]]; then
+            exit 0
+          fi
+
+          cat submissions-to-append.jsonl >> submissions.jsonl
           git add submissions.jsonl
           git commit -m "Add shipskip submissions" || exit 0
           git push origin "HEAD:${GITHUB_REF_NAME}"

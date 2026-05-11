@@ -44,7 +44,7 @@ For CLI options, OpenRouter model ids, and session environment variables, see [`
 
 Run `Submit shipskip artifact` from a non-default branch or fork. The workflow accepts JSON arrays for `tasks` and `models`, runs every task/model combination, uploads each generated artifact, appends one UUID-backed record per submission to `submissions.jsonl`, and pushes the records to the source branch.
 
-Open a PR containing the new `submissions.jsonl` lines. Adding the `publish` label to the PR triggers `Publish shipskip artifact`, which validates each referenced workflow run, downloads each artifact, deploys each static build, stores each manifest, log, and app archive in R2, and comments the Pages and R2 URLs on the PR.
+Open a PR containing the new `submissions.jsonl` lines, and uncheck "Allow edits and access to secrets by maintainers". Adding the `publish` label to the PR triggers `Publish shipskip artifact`, which validates each referenced workflow run, downloads each artifact, deploys each static build, stores each manifest, log, and app archive in R2, and comments the Pages and R2 URLs on the PR.
 
 ## Development Checks
 

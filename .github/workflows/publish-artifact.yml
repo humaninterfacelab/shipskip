@@ -116,6 +116,16 @@ jobs:
             exit 1
           fi
 
+          EXISTING_IDS=$(jq -n -r --slurpfile base "$BASE_FILE" --slurpfile new submissions-to-publish.jsonl '
+            ($base | map(.id)) as $base_ids |
+            $new[] | .id as $id | select($base_ids | index($id)) | $id
+          ' | sort -u)
+          if [[ -n "$EXISTING_IDS" ]]; then
+            echo "Submission ids must not already exist in the base file." >&2
+            echo "$EXISTING_IDS" >&2
+            exit 1
+          fi
+
       - name: Publish submissions
         shell: bash
         env:
@@ -137,32 +147,56 @@ jobs:
             ARTIFACT_NAME=$(jq -r '.artifact_name' submission.json)
             ARTIFACT_DIR="./artifacts/${SUBMISSION_ID}"
 
-            gh api "repos/${HEAD_REPO}/actions/runs/${RUN_ID}" | jq -e \
+            echo "Publishing submission ${SUBMISSION_ID} from run ${RUN_ID} in ${HEAD_REPO}."
+
+            if ! gh api "repos/${HEAD_REPO}/actions/runs/${RUN_ID}" > run.json; then
+              echo "Failed to read workflow run ${RUN_ID} from ${HEAD_REPO}." >&2
+              exit 1
+            fi
+
+            if ! jq -e \
               --arg sha "$SOURCE_SHA" \
               --arg attempt "$RUN_ATTEMPT" '
                 .head_sha == $sha and
                 .name == "Submit shipskip artifact" and
                 .event == "workflow_dispatch" and
                 (.run_attempt | tostring) == $attempt and
-                .conclusion == "success"
-              ' > /dev/null
+                .status == "completed" and
+                (.conclusion == "success" or .conclusion == "failure")
+              ' run.json > /dev/null; then
+              echo "Workflow run ${RUN_ID} is not a completed Submit shipskip artifact run for ${SOURCE_SHA}." >&2
+              jq '{name, event, head_sha, run_attempt, status, conclusion}' run.json >&2
+              exit 1
+            fi
 
             rm -rf "$ARTIFACT_DIR"
             mkdir -p "$ARTIFACT_DIR"
-            gh run download "$RUN_ID" --repo "$HEAD_REPO" --name "$ARTIFACT_NAME" --dir "$ARTIFACT_DIR"
+            if ! gh run download "$RUN_ID" --repo "$HEAD_REPO" --name "$ARTIFACT_NAME" --dir "$ARTIFACT_DIR"; then
+              echo "Failed to download artifact ${ARTIFACT_NAME} from run ${RUN_ID}." >&2
+              exit 1
+            fi
 
             for file in manifest.json logs.ndjson app.tar.gz; do
-              test -f "${ARTIFACT_DIR}/${file}"
+              if [[ ! -f "${ARTIFACT_DIR}/${file}" ]]; then
+                echo "Downloaded artifact is missing ${file}." >&2
+                exit 1
+              fi
             done
 
-            test -d "${ARTIFACT_DIR}/build"
+            if [[ ! -d "${ARTIFACT_DIR}/build" ]]; then
+              echo "Downloaded artifact is missing build/." >&2
+              exit 1
+            fi
 
-            jq -e --slurpfile sub submission.json '
+            if ! jq -e --slurpfile sub submission.json '
               .id == $sub[0].id and
               .artifact_name == $sub[0].artifact_name and
               .run_id == $sub[0].run_id and
               .source_sha == $sub[0].source_sha
-            ' "${ARTIFACT_DIR}/manifest.json" > /dev/null
+            ' "${ARTIFACT_DIR}/manifest.json" > /dev/null; then
+              echo "Downloaded manifest does not match the submission record." >&2
+              exit 1
+            fi
 
             npx --yes wrangler@latest pages deploy "${ARTIFACT_DIR}/build" \
               --project-name="${PAGES_PROJECT_NAME}" \
