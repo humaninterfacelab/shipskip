@@ -241,4 +241,7 @@ jobs:
             jq -r '.[] | "| `\(.submission_id)` | [Preview](\(.pages_url)) | `\(.r2_url)` |"' "$RUNNER_TEMP/publish-results.json"
           } > publish-comment.md
 
-          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body-file publish-comment.md
+          gh api \
+            --method POST \
+            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            -f body="$(< publish-comment.md)"
