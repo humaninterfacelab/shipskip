@@ -3,27 +3,68 @@ name: Submit shipskip artifact
 on:
   workflow_dispatch:
     inputs:
-      task:
-        description: Task name from '@shipskip/tasks'
+      tasks:
+        description: JSON array of task names from '@shipskip/tasks'
         required: true
-        default: next-app/software-engineer-portfolio
-      model:
-        description: OpenRouter model id, for example 'openai/gpt-oss-120b:free'
+        default: '["next-app/software-engineer-portfolio"]'
+      models:
+        description: JSON array of OpenRouter model ids
         required: true
-        default: google/gemini-3.1-flash-lite-preview
+        default: '["google/gemini-3.1-flash-lite-preview"]'
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
-  generate:
+  prepare:
     if: ${{ github.event.repository.fork || github.ref_name != github.event.repository.default_branch }}
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+    steps:
+      - name: Build task/model matrix
+        id: matrix
+        shell: bash
+        env:
+          TASKS: ${{ inputs.tasks }}
+          MODELS: ${{ inputs.models }}
+        run: |
+          set -euo pipefail
+
+          jq -n '{include: []}' > matrix.json
+
+          while IFS= read -r task; do
+            while IFS= read -r model; do
+              SUBMISSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+              jq \
+                --arg task "$task" \
+                --arg model "$model" \
+                --arg submission_id "$SUBMISSION_ID" \
+                '.include += [{task: $task, model: $model, submission_id: $submission_id}]' \
+                matrix.json > matrix.tmp
+              mv matrix.tmp matrix.json
+            done < <(jq -r '.[]' <<< "$MODELS")
+          done < <(jq -r '.[]' <<< "$TASKS")
+
+          MATRIX=$(jq -c . matrix.json)
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  generate:
+    needs: prepare
+    runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     env:
-      SHIPSKIP_TASK: ${{ inputs.task }}
-      SHIPSKIP_MODEL: ${{ inputs.model }}
+      SHIPSKIP_TASK: ${{ matrix.task }}
+      SHIPSKIP_MODEL: ${{ matrix.model }}
+      SUBMISSION_ID: ${{ matrix.submission_id }}
+
 
     steps:
       - name: Checkout
@@ -51,52 +92,39 @@ jobs:
       - name: Run CLI
         shell: bash
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
-          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          # Add API Keys here as needed
-        run: |
-          bun dev:cli run \
-          --task "$SHIPSKIP_TASK" \
-          --model "$SHIPSKIP_MODEL"
+        run: bun dev:cli run --task "$SHIPSKIP_TASK" --model "$SHIPSKIP_MODEL"
 
       - name: Create manifest.json
         shell: bash
         run: |
           set -euo pipefail
 
-          SUBMISSION_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          ARTIFACT_NAME="artifact-${SUBMISSION_ID}"
-
           SUBMISSION_MODEL="${SHIPSKIP_MODEL%%:*}"
 
           jq -n \
-          --arg id "$SUBMISSION_ID" \
-          --arg model "$SUBMISSION_MODEL" \
-          --arg task "$SHIPSKIP_TASK" \
-          --argjson run_id "$GITHUB_RUN_ID" \
-          --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \
-          --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-          --arg artifact_name "$ARTIFACT_NAME" \
-          --arg submitter "$GITHUB_ACTOR" \
-          --arg repo "$GITHUB_REPOSITORY" \
-          --arg source_sha "$GITHUB_SHA" \
-          --arg ref "$GITHUB_REF_NAME" \
-          '{
-            id: $id,
-            model: $model,
-            task: $task,
-            run_id: $run_id,
-            run_attempt: $run_attempt,
-            run_url: $run_url,
-            artifact_name: $artifact_name,
-            submitter: $submitter,
-            repo: $repo,
-            source_sha: $source_sha,
-            ref: $ref
-          }' > manifest.json
+            --arg id "$SUBMISSION_ID" \
+            --arg model "$SUBMISSION_MODEL" \
+            --arg task "$SHIPSKIP_TASK" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --arg submitter "$GITHUB_ACTOR" \
+            --arg source_sha "$GITHUB_SHA" \
+            --arg ref "$GITHUB_REF_NAME" \
+            '{
+              id: $id,
+              model: $model,
+              task: $task,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              run_url: $run_url,
+              submitter: $submitter,
+              source_sha: $source_sha,
+              ref: $ref
+            }' > manifest.json
+
+          cp manifest.json "submission-record-${SUBMISSION_ID}.json"
 
       - name: Stage artifact files
         shell: bash
@@ -112,26 +140,23 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: artifact-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ env.SUBMISSION_ID }}
           overwrite: true
-          retention-days: 30
+          retention-days: 90
           path: artifact/*
 
-      - name: Commit submission record
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          jq -c . manifest.json >> submissions.jsonl
-          git add submissions.jsonl
-          git commit -m "Submission for $SHIPSKIP_TASK" || exit 0
-          git push
+      - name: Upload submission record
+        uses: actions/upload-artifact@v7
+        with:
+          name: submission-record-${{ env.SUBMISSION_ID }}
+          retention-days: 30
+          path: submission-record-${{ env.SUBMISSION_ID }}.json
 
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: failure-logs
+          name: failure-logs-${{ matrix.submission_id }}
           if-no-files-found: ignore
           path: ${{ env.SHIPSKIP_SESSION_DIR }}/logs.ndjson
 
@@ -148,6 +173,7 @@ jobs:
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
+            echo "| Submission | \`$SUBMISSION_ID\` |"
             echo "| Task | \`$SHIPSKIP_TASK\` |"
             echo "| Model | \`$SHIPSKIP_MODEL\` |"
             echo "| Submitter | \`$GITHUB_ACTOR\` |"
@@ -156,3 +182,56 @@ jobs:
             echo "| Run | [$GITHUB_RUN_ID]($RUN_URL) |"
             echo "| Artifact | [artifact]($RUN_URL#artifacts) |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  commit-submissions:
+    needs: generate
+    if: ${{ always() && needs.generate.result != 'skipped' && needs.generate.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Find submission records
+        id: records
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" --paginate \
+            --jq '.artifacts[] | select(.name | startswith("submission-record-")) | .name' \
+            > submission-record-artifacts.txt
+
+          if [[ -s submission-record-artifacts.txt ]]; then
+            echo "has_records=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No successful submission records to commit."
+            echo "has_records=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download submission records
+        if: ${{ steps.records.outputs.has_records == 'true' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: submission-record-*
+          path: ./submission-records
+          merge-multiple: true
+
+      - name: Commit submission records
+        if: ${{ steps.records.outputs.has_records == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          jq -c . ./submission-records/*.json >> submissions.jsonl
+          git add submissions.jsonl
+          git commit -m "Add shipskip submissions" || exit 0
+          git push

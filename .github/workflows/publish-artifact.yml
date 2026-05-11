@@ -7,31 +7,24 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
+  issues: write
   pull-requests: read
 
 jobs:
   publish:
     if: ${{ github.event.label.name == 'publish' && github.event.pull_request.base.ref == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     env:
       PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
       R2_BUCKET_NAME: shipskip-artifacts
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
       HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
 
     steps:
-      - name: Validate config
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test -n "${PAGES_PROJECT_NAME}"
-          [[ "${PAGES_PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]
-          [[ "${R2_BUCKET_NAME}" =~ ^[A-Za-z0-9._-]{3,63}$ ]]
-
       - name: Validate PR shape
         shell: bash
         env:
@@ -45,175 +38,180 @@ jobs:
             length == 1 and
             .[0].filename == "submissions.jsonl" and
             .[0].status == "modified" and
-            .[0].additions == 1 and
+            .[0].additions >= 1 and
             .[0].deletions == 0
           ' pr-files.json > /dev/null
 
-      - name: Extract and validate submission
-        id: submission
+      - name: Checkout base submission file
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          sparse-checkout: submissions.jsonl
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout head submission file
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+          sparse-checkout: submissions.jsonl
+          sparse-checkout-cone-mode: false
+
+      - name: Extract and validate submissions
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          jq -r '.[0].patch // empty' pr-files.json \
-            | grep -E '^\+\{.*\}$' \
-            | sed 's/^\+//' > submission.json
+          BASE_FILE="base/submissions.jsonl"
+          HEAD_FILE="head/submissions.jsonl"
 
-          if [[ $(wc -l < submission.json) -ne 1 ]]; then
-            echo "Expected exactly one new submission record in the diff." >&2
+          test -f "$BASE_FILE"
+          test -f "$HEAD_FILE"
+
+          BASE_LINES=$(wc -l < "$BASE_FILE" | tr -d ' ')
+          HEAD_LINES=$(wc -l < "$HEAD_FILE" | tr -d ' ')
+
+          if [[ "$HEAD_LINES" -le "$BASE_LINES" ]]; then
+            echo "Expected submissions.jsonl to append at least one record." >&2
             exit 1
           fi
 
-          jq -e '
-            type == "object" and
-            (.id | type == "string" and test("^[a-z0-9][a-z0-9-]{0,62}$")) and
-            (.model | type == "string" and length > 0 and length <= 128) and
-            (.task | type == "string" and length > 0 and length <= 256) and
-            (.repo | type == "string" and test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) and
-            (.source_sha | type == "string" and test("^[0-9a-f]{40}$")) and
-            (.run_id | type == "number") and
-            (.run_attempt | type == "number") and
-            (.artifact_name | type == "string" and test("^[A-Za-z0-9_.-]{1,128}$"))
-          ' submission.json > /dev/null
-
-          SUBMISSION_ID=$(jq -r '.id' submission.json)
-          RUN_ID=$(jq -r '.run_id' submission.json)
-          RUN_ATTEMPT=$(jq -r '.run_attempt' submission.json)
-          SOURCE_SHA=$(jq -r '.source_sha' submission.json)
-          REPO=$(jq -r '.repo' submission.json)
-          ARTIFACT_NAME=$(jq -r '.artifact_name' submission.json)
-
-          if [[ "$REPO" != "$HEAD_REPO" ]]; then
-            echo "Submission repo must match PR head repo." >&2
+          if ! cmp -s "$BASE_FILE" <(head -n "$BASE_LINES" "$HEAD_FILE"); then
+            echo "submissions.jsonl must preserve all existing records and append new records only." >&2
             exit 1
           fi
 
-          gh api "repos/${REPO}/actions/runs/${RUN_ID}" | jq -e \
-            --arg sha "$SOURCE_SHA" \
-            --arg attempt "$RUN_ATTEMPT" '
-              .head_sha == $sha and
-              .name == "Submit shipskip artifact" and
-              .event == "workflow_dispatch" and
-              (.run_attempt | tostring) == $attempt and
-              .conclusion == "success"
-            ' > /dev/null
+          tail -n +$((BASE_LINES + 1)) "$HEAD_FILE" > submissions-to-publish.jsonl
 
-          {
-            echo "submission_id=$SUBMISSION_ID"
-            echo "run_id=$RUN_ID"
-            echo "run_attempt=$RUN_ATTEMPT"
-            echo "repo=$REPO"
-            echo "source_sha=$SOURCE_SHA"
-            echo "artifact_name=$ARTIFACT_NAME"
-          } >> "$GITHUB_OUTPUT"
+          ADDITIONS=$(jq -r '.[0].additions' pr-files.json)
+          RECORDS=$(wc -l < submissions-to-publish.jsonl | tr -d ' ')
 
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          repository: ${{ steps.submission.outputs.repo }}
-          run-id: ${{ steps.submission.outputs.run_id }}
-          name: ${{ steps.submission.outputs.artifact_name }}
-          github-token: ${{ secrets.ARTIFACT_READER_TOKEN || github.token }}
-          path: ./artifact
+          if [[ "$RECORDS" -ne "$ADDITIONS" ]]; then
+            echo "Expected ${ADDITIONS} new submission records in the diff; found ${RECORDS}." >&2
+            exit 1
+          fi
 
-      - name: Validate artifact manifest
-        shell: bash
-        run: |
-          set -euo pipefail
+          jq -s -e '
+            all(.[];
+              type == "object" and
+              (.id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
+              (.source_sha | type == "string" and test("^[0-9a-f]{40}$")) and
+              ((.run_id | type) == "number" and .run_id > 0 and (.run_id | floor) == .run_id) and
+              ((.run_attempt | type) == "number" and .run_attempt > 0 and (.run_attempt | floor) == .run_attempt)
+            )
+          ' submissions-to-publish.jsonl > /dev/null
 
-          for file in manifest.json logs.ndjson app.tar.gz; do
-            test -f "./artifact/$file"
-          done
+          IDS=$(jq -r '.id' submissions-to-publish.jsonl | sort | uniq -d)
+          if [[ -n "$IDS" ]]; then
+            echo "Submission ids must be unique within the PR." >&2
+            echo "$IDS" >&2
+            exit 1
+          fi
 
-          test -d ./artifact/build
-
-          jq -e --slurpfile sub submission.json '
-            .id == $sub[0].id and
-            .repo == $sub[0].repo and
-            .run_id == $sub[0].run_id and
-            .source_sha == $sub[0].source_sha and
-            .artifact_name == $sub[0].artifact_name
-          ' ./artifact/manifest.json > /dev/null
-
-      - name: Deploy static website
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./artifact/build --project-name=${{ env.PAGES_PROJECT_NAME }} --branch=${{ steps.submission.outputs.submission_id }} --commit-dirty=true
-
-      - name: Upload to R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: |
-            r2 object put ${{ env.R2_BUCKET_NAME }}/${{ steps.submission.outputs.submission_id }}/manifest.json --file ./artifact/manifest.json
-            r2 object put ${{ env.R2_BUCKET_NAME }}/${{ steps.submission.outputs.submission_id }}/logs.ndjson --file ./artifact/logs.ndjson
-            r2 object put ${{ env.R2_BUCKET_NAME }}/${{ steps.submission.outputs.submission_id }}/app.tar.gz --file ./artifact/app.tar.gz
-
-      - name: Checkout base repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.event.repository.default_branch }}
-          token: ${{ secrets.BOT_PAT || github.token }}
-
-      - name: Commit publish result to base repo branch
+      - name: Publish submissions
         shell: bash
         env:
-          SUBMISSION_ID: ${{ steps.submission.outputs.submission_id }}
-          SOURCE_REPO: ${{ steps.submission.outputs.repo }}
-          SOURCE_SHA: ${{ steps.submission.outputs.source_sha }}
-          ARTIFACT_NAME: ${{ steps.submission.outputs.artifact_name }}
-          RUN_ID: ${{ steps.submission.outputs.run_id }}
-          RUN_ATTEMPT: ${{ steps.submission.outputs.run_attempt }}
-          PAGES_URL: https://${{ steps.submission.outputs.submission_id }}.${{ env.PAGES_PROJECT_NAME }}.pages.dev
-          R2_URL: r2://${{ env.R2_BUCKET_NAME }}/${{ steps.submission.outputs.submission_id }}
+          GH_TOKEN: ${{ secrets.ARTIFACT_READER_TOKEN || github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
 
-          RESULT_BRANCH="shipskip-publish/pr-${PR_NUMBER}"
-          RESULT_FILE=".shipskip/publish-results/pr-${PR_NUMBER}.json"
+          : > publish-results.jsonl
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          while IFS= read -r submission; do
+            jq -c . <<< "$submission" > submission.json
 
-          if git ls-remote --exit-code --heads origin "$RESULT_BRANCH" >/dev/null 2>&1; then
-            git fetch origin "${RESULT_BRANCH}:${RESULT_BRANCH}"
-            git switch "$RESULT_BRANCH"
-          else
-            git switch -c "$RESULT_BRANCH"
-          fi
+            SUBMISSION_ID=$(jq -r '.id' submission.json)
+            RUN_ID=$(jq -r '.run_id' submission.json)
+            RUN_ATTEMPT=$(jq -r '.run_attempt' submission.json)
+            SOURCE_SHA=$(jq -r '.source_sha' submission.json)
+            ARTIFACT_DIR="./artifacts/${SUBMISSION_ID}"
 
-          mkdir -p "$(dirname "$RESULT_FILE")"
+            gh api "repos/${HEAD_REPO}/actions/runs/${RUN_ID}" | jq -e \
+              --arg sha "$SOURCE_SHA" \
+              --arg attempt "$RUN_ATTEMPT" '
+                .head_sha == $sha and
+                .name == "Submit shipskip artifact" and
+                .event == "workflow_dispatch" and
+                (.run_attempt | tostring) == $attempt and
+                .conclusion == "success"
+              ' > /dev/null
 
-          jq -n -c \
-            --argjson pr_number "$PR_NUMBER" \
-            --arg submission_id "$SUBMISSION_ID" \
-            --arg source_repo "$SOURCE_REPO" \
-            --arg source_sha "$SOURCE_SHA" \
-            --arg artifact_name "$ARTIFACT_NAME" \
-            --arg run_id "$RUN_ID" \
-            --arg run_attempt "$RUN_ATTEMPT" \
-            --arg pages_url "$PAGES_URL" \
-            --arg r2_url "$R2_URL" \
-            --arg published_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{
-              pr_number: $pr_number,
-              submission_id: $submission_id,
-              source_repo: $source_repo,
-              source_sha: $source_sha,
-              artifact_name: $artifact_name,
-              run_id: ($run_id | tonumber),
-              run_attempt: ($run_attempt | tonumber),
-              pages_url: $pages_url,
-              r2_url: $r2_url,
-              published_at: $published_at
-            }' > "$RESULT_FILE"
+            rm -rf "$ARTIFACT_DIR"
+            mkdir -p "$ARTIFACT_DIR"
+            gh run download "$RUN_ID" --repo "$HEAD_REPO" --name "$SUBMISSION_ID" --dir "$ARTIFACT_DIR"
 
-          git add "$RESULT_FILE"
-          git commit -m "Record publish result for PR #${PR_NUMBER}" || exit 0
-          git push origin "$RESULT_BRANCH"
+            for file in manifest.json logs.ndjson app.tar.gz; do
+              test -f "${ARTIFACT_DIR}/${file}"
+            done
+
+            test -d "${ARTIFACT_DIR}/build"
+
+            jq -e --slurpfile sub submission.json '
+              .id == $sub[0].id and
+              .run_id == $sub[0].run_id and
+              .source_sha == $sub[0].source_sha
+            ' "${ARTIFACT_DIR}/manifest.json" > /dev/null
+
+            npx --yes wrangler@latest pages deploy "${ARTIFACT_DIR}/build" \
+              --project-name="${PAGES_PROJECT_NAME}" \
+              --branch="${SUBMISSION_ID}" \
+              --commit-dirty=true
+
+            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/manifest.json" --file "${ARTIFACT_DIR}/manifest.json"
+            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/logs.ndjson" --file "${ARTIFACT_DIR}/logs.ndjson"
+            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/app.tar.gz" --file "${ARTIFACT_DIR}/app.tar.gz"
+
+            jq -n -c \
+              --argjson pr_number "$PR_NUMBER" \
+              --arg pr_url "$PR_URL" \
+              --arg submission_id "$SUBMISSION_ID" \
+              --arg source_repo "$HEAD_REPO" \
+              --arg source_sha "$SOURCE_SHA" \
+              --arg run_id "$RUN_ID" \
+              --arg run_attempt "$RUN_ATTEMPT" \
+              --arg pages_url "https://${SUBMISSION_ID}.${PAGES_PROJECT_NAME}.pages.dev" \
+              --arg r2_url "r2://${R2_BUCKET_NAME}/${SUBMISSION_ID}" \
+              --arg published_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '{
+                pr_number: $pr_number,
+                pr_url: $pr_url,
+                submission_id: $submission_id,
+                source_repo: $source_repo,
+                source_sha: $source_sha,
+                run_id: ($run_id | tonumber),
+                run_attempt: ($run_attempt | tonumber),
+                pages_url: $pages_url,
+                r2_url: $r2_url,
+                published_at: $published_at
+              }' >> publish-results.jsonl
+          done < submissions-to-publish.jsonl
+
+          jq -s -c . publish-results.jsonl > publish-results.json
+          cp publish-results.json "$RUNNER_TEMP/publish-results.json"
+
+      - name: Comment publish URLs on PR
+        if: ${{ success() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Publish succeeded"
+            echo
+            echo "| Submission | Pages | Artifact |"
+            echo "| --- | --- | --- |"
+            jq -r '.[] | "| `\(.submission_id)` | [Preview](\(.pages_url)) | `\(.r2_url)` |"' "$RUNNER_TEMP/publish-results.json"
+          } > publish-comment.md
+
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body-file publish-comment.md

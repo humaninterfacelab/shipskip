@@ -42,9 +42,9 @@ For CLI options, OpenRouter model ids, and session environment variables, see [`
 
 ## Submissions
 
-Run `Submit shipskip artifact` from a non-default branch or fork. The workflow uploads the generated artifact, appends one record to `submissions.jsonl`, and pushes that record to the source branch.
+Run `Submit shipskip artifact` from a non-default branch or fork. The workflow accepts JSON arrays for `tasks` and `models`, runs every task/model combination, uploads each generated artifact, appends one UUID-backed record per submission to `submissions.jsonl`, and pushes the records to the source branch.
 
-Open a PR containing the new `submissions.jsonl` line. Adding the `publish` label to the PR triggers `Publish shipskip artifact`, which validates the referenced workflow run, downloads the artifact, deploys the static build, stores the manifest, logs, and app archive in R2, and writes the Pages and R2 URLs back to the submission record.
+Open a PR containing the new `submissions.jsonl` lines. Adding the `publish` label to the PR triggers `Publish shipskip artifact`, which validates each referenced workflow run, downloads each artifact, deploys each static build, stores each manifest, log, and app archive in R2, and comments the Pages and R2 URLs on the PR.
 
 ## Development Checks
 
