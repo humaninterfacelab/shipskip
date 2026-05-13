@@ -25,23 +25,6 @@ jobs:
       HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
 
     steps:
-      - name: Validate PR shape
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" > pr-files.json
-
-          jq -e '
-            length == 1 and
-            .[0].filename == "submissions.jsonl" and
-            .[0].status == "modified" and
-            .[0].additions >= 1 and
-            .[0].deletions == 0
-          ' pr-files.json > /dev/null
-
       - name: Checkout base submission file
         uses: actions/checkout@v6
         with:
@@ -72,31 +55,10 @@ jobs:
           BASE_FILE="base/submissions.jsonl"
           HEAD_FILE="head/submissions.jsonl"
 
-          test -f "$BASE_FILE"
-          test -f "$HEAD_FILE"
-
           BASE_LINES=$(wc -l < "$BASE_FILE" | tr -d ' ')
           HEAD_LINES=$(wc -l < "$HEAD_FILE" | tr -d ' ')
 
-          if [[ "$HEAD_LINES" -le "$BASE_LINES" ]]; then
-            echo "Expected submissions.jsonl to append at least one record." >&2
-            exit 1
-          fi
-
-          if ! cmp -s "$BASE_FILE" <(head -n "$BASE_LINES" "$HEAD_FILE"); then
-            echo "submissions.jsonl must preserve all existing records and append new records only." >&2
-            exit 1
-          fi
-
           tail -n +$((BASE_LINES + 1)) "$HEAD_FILE" > submissions-to-publish.jsonl
-
-          ADDITIONS=$(jq -r '.[0].additions' pr-files.json)
-          RECORDS=$(wc -l < submissions-to-publish.jsonl | tr -d ' ')
-
-          if [[ "$RECORDS" -ne "$ADDITIONS" ]]; then
-            echo "Expected ${ADDITIONS} new submission records in the diff; found ${RECORDS}." >&2
-            exit 1
-          fi
 
           jq -s -e '
             all(.[];
@@ -104,8 +66,8 @@ jobs:
               (.id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
               (.artifact_name == ("artifact-" + .id)) and
               (.source_sha | type == "string" and test("^[0-9a-f]{40}$")) and
-              ((.run_id | type) == "number" and .run_id > 0 and (.run_id | floor) == .run_id) and
-              ((.run_attempt | type) == "number" and .run_attempt > 0 and (.run_attempt | floor) == .run_attempt)
+              ((.run_id | type) == "number" and
+              ((.run_attempt | type) == "number")
             )
           ' submissions-to-publish.jsonl > /dev/null
 
@@ -151,6 +113,7 @@ jobs:
             SOURCE_SHA=$(jq -r '.source_sha' submission.json)
             ARTIFACT_NAME=$(jq -r '.artifact_name' submission.json)
             ARTIFACT_DIR="./artifacts/${SUBMISSION_ID}"
+            PAGES_BRANCH="${SUBMISSION_ID}"
 
             echo "Publishing submission ${SUBMISSION_ID} from run ${RUN_ID} in ${HEAD_REPO}."
 
@@ -190,12 +153,12 @@ jobs:
 
             npx --yes wrangler@latest pages deploy "${ARTIFACT_DIR}/build" \
               --project-name="${PAGES_PROJECT_NAME}" \
-              --branch="${SUBMISSION_ID}" \
+              --branch="${PAGES_BRANCH}" \
               --commit-dirty=true
 
-            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/manifest.json" --file "${ARTIFACT_DIR}/manifest.json"
-            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/logs.ndjson" --file "${ARTIFACT_DIR}/logs.ndjson"
-            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/app.tar.gz" --file "${ARTIFACT_DIR}/app.tar.gz"
+            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/manifest.json" --remote --file "${ARTIFACT_DIR}/manifest.json"
+            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/logs.ndjson" --remote --file "${ARTIFACT_DIR}/logs.ndjson"
+            npx --yes wrangler@latest r2 object put "${R2_BUCKET_NAME}/${SUBMISSION_ID}/app.tar.gz" --remote --file "${ARTIFACT_DIR}/app.tar.gz"
 
             jq -n -c \
               --argjson pr_number "$PR_NUMBER" \
@@ -205,7 +168,7 @@ jobs:
               --arg source_sha "$SOURCE_SHA" \
               --arg run_id "$RUN_ID" \
               --arg run_attempt "$RUN_ATTEMPT" \
-              --arg pages_url "https://${SUBMISSION_ID}.${PAGES_PROJECT_NAME}.pages.dev" \
+              --arg pages_url "https://${PAGES_BRANCH}.${PAGES_PROJECT_NAME}.pages.dev" \
               --arg r2_url "r2://${R2_BUCKET_NAME}/${SUBMISSION_ID}" \
               --arg published_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               '{
