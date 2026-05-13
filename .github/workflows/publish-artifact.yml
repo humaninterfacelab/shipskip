@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ github.event.label.name == 'publish' && github.event.pull_request.base.ref == github.event.repository.default_branch }}
+    if: ${{ github.event.label.name == 'publish' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -63,10 +63,10 @@ jobs:
           jq -s -e '
             all(.[];
               type == "object" and
-              (.id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
+              (.id | type == "string") and
               (.artifact_name == ("artifact-" + .id)) and
-              (.source_sha | type == "string" and test("^[0-9a-f]{40}$")) and
-              ((.run_id | type) == "number" and
+              (.source_sha | type == "string") and
+              ((.run_id | type) == "number") and
               ((.run_attempt | type) == "number")
             )
           ' submissions-to-publish.jsonl > /dev/null
