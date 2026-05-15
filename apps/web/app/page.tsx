@@ -1,7 +1,30 @@
+import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
+
 export default function Home() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 py-6 sm:px-8" />
+    <main className="bg-background text-foreground min-h-screen">
+      <section className="container mx-auto flex min-h-[calc(100vh-3.5rem)] max-w-4xl flex-col justify-center gap-8 py-20">
+        <div className="flex flex-col gap-5">
+          <p className="text-muted-foreground text-sm font-medium tracking-wide uppercase">
+            Frontend evaluation
+          </p>
+          <h1 className="max-w-3xl text-4xl leading-tight font-semibold tracking-tight text-balance md:text-6xl">
+            Compare two generated UIs. Ship the stronger one.
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-lg leading-8 text-pretty">
+            shipskip helps you review AI-generated frontend submissions side by
+            side.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button asChild size="lg" variant="outline">
+            <Link href="/arena">Open arena</Link>
+          </Button>
+        </div>
+      </section>
     </main>
   );
 }

@@ -26,6 +26,7 @@
     "eslint": "latest",
     "eslint-plugin-simple-import-sort": "latest",
     "prettier": "latest",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "typescript": "^6",
     "typescript-eslint": "latest"
   }

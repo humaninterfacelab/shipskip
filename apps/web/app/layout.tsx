@@ -10,8 +10,9 @@ import { cn } from "@/lib/utils";
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "shipskip",
-  description: "shipskip web app",
+  title: "shipskip | Compare frontend submissions",
+  description:
+    "Compare AI-generated frontend submissions and choose which one ships.",
 };
 
 export default function RootLayout({
