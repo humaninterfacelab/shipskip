@@ -1,7 +1,3 @@
-"use client";
-
-import { useState } from "react";
-
 import { cn } from "@/lib/utils";
 
 import { badgeVariants } from "./ui/badge";
@@ -10,9 +6,11 @@ import { Button } from "./ui/button";
 type FeedbackPanelProps = {
   title?: string;
   description?: string;
+  selectedReasons: Set<Reason>;
+  onToggleReason: (reason: Reason) => void;
 };
 
-const reasons = [
+export const feedbackReasons = [
   "Good Colors",
   "Consistent Design",
   "Mobile Friendly",
@@ -22,31 +20,18 @@ const reasons = [
   "Easy to Use",
 ] as const;
 
-type Reason = (typeof reasons)[number];
+export type Reason = (typeof feedbackReasons)[number];
 
-export function FeedbackPanel({ title, description }: FeedbackPanelProps) {
-  const [selectedReasons, setSelectedReasons] = useState<Set<Reason>>(
-    new Set(),
-  );
-
-  const toggleReason = (reason: Reason) => {
-    setSelectedReasons((prev) => {
-      const updated = new Set(prev);
-
-      if (updated.has(reason)) {
-        updated.delete(reason);
-      } else {
-        updated.add(reason);
-      }
-
-      return updated;
-    });
-  };
-
+export function FeedbackPanel({
+  title,
+  description,
+  selectedReasons,
+  onToggleReason,
+}: FeedbackPanelProps) {
   return (
     <div className="flex w-full flex-col gap-2">
       <p className="leading-tight font-medium">
-        {title ?? "Why would you ship this option?"}
+        {title ?? "What makes it shippable?"}
       </p>
 
       <p className="text-muted-foreground text-xs">
@@ -54,14 +39,14 @@ export function FeedbackPanel({ title, description }: FeedbackPanelProps) {
       </p>
 
       <div className="mt-2 flex flex-wrap gap-2">
-        {reasons.map((reason) => {
+        {feedbackReasons.map((reason) => {
           const selected = selectedReasons.has(reason);
 
           return (
             <Button
               key={reason}
               aria-pressed={selected}
-              onClick={() => toggleReason(reason)}
+              onClick={() => onToggleReason(reason)}
               className={cn(
                 badgeVariants({ variant: "outline" }),
                 "hover:bg-accent cursor-pointer bg-transparent px-2 py-3 transition-colors duration-200",

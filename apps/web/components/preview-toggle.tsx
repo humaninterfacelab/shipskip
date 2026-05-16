@@ -4,23 +4,24 @@ import { Monitor, Smartphone } from "lucide-react";
 
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 
-export type ViewMode = "desktop" | "mobile";
+export type PreviewMode = "desktop" | "mobile";
 
-type ViewToggleProps = {
-  value: ViewMode;
-  onChange: (value: ViewMode) => void;
+type PreviewToggleProps = {
+  value: PreviewMode;
+  onChange: (value: PreviewMode) => void;
 };
 
-export function ViewToggle({ value, onChange }: ViewToggleProps) {
+export function PreviewToggle({ value, onChange }: PreviewToggleProps) {
   return (
     <ToggleGroup
       type="single"
       variant="outline"
       size="sm"
       value={value}
-      onValueChange={(nextView) => {
-        if (nextView === "desktop" || nextView === "mobile") {
-          onChange(nextView);
+      defaultValue="desktop"
+      onValueChange={(val: string) => {
+        if (val === "desktop" || val === "mobile") {
+          onChange(val);
         }
       }}
     >

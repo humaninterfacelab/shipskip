@@ -109,7 +109,7 @@ jobs:
             --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \
             --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             --arg artifact_name "$ARTIFACT_NAME" \
-            --arg submitter "$GITHUB_ACTOR" \
+            --arg submitted_by "$GITHUB_ACTOR" \
             --arg source_sha "$GITHUB_SHA" \
             '{
               id: $id,
@@ -119,7 +119,7 @@ jobs:
               run_attempt: $run_attempt,
               run_url: $run_url,
               artifact_name: $artifact_name,
-              submitter: $submitter,
+              submitted_by: $submitted_by,
               source_sha: $source_sha,
             }' > manifest.json
 

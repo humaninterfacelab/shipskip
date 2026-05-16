@@ -11,7 +11,10 @@ import { cn } from "@/lib/utils";
 
 import { ThemeToggle } from "./theme-toggle";
 
-const navItems = [{ href: "/arena", label: "Arena" }];
+const navItems = [
+  { href: "/arena", label: "Arena" },
+  { href: "/leaderboard", label: "Leaderboard" },
+];
 
 export function Navbar() {
   return (
