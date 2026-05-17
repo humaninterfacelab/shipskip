@@ -30,13 +30,6 @@ type VoteInput = {
   feedbackReasons?: string[];
 };
 
-type MatchupCandidate = {
-  submission: typeof submissions.$inferSelect;
-  task: typeof tasks.$inferSelect;
-  rating: number;
-  matches: number;
-};
-
 function expectedScore(rating: number, opponentRating: number) {
   return 1 / (1 + 10 ** ((opponentRating - rating) / 400));
 }
@@ -51,70 +44,7 @@ function calculateElo(winnerRating: number, loserRating: number) {
   };
 }
 
-function chooseBestPair(candidates: MatchupCandidate[]) {
-  const byTask = new Map<string, MatchupCandidate[]>();
-
-  for (const candidate of candidates) {
-    const existing = byTask.get(candidate.submission.taskId) ?? [];
-    existing.push(candidate);
-    byTask.set(candidate.submission.taskId, existing);
-  }
-
-  let bestPair: readonly [MatchupCandidate, MatchupCandidate] | null = null;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (const taskCandidates of byTask.values()) {
-    for (let i = 0; i < taskCandidates.length; i++) {
-      for (let j = i + 1; j < taskCandidates.length; j++) {
-        const a = taskCandidates[i];
-        const b = taskCandidates[j];
-
-        if (a.submission.model === b.submission.model) continue;
-
-        const ratingGap = Math.abs(a.rating - b.rating);
-        const exposure = a.matches + b.matches;
-        const score = ratingGap + exposure * 8 + Math.random() * 50;
-
-        if (score < bestScore) {
-          bestScore = score;
-          bestPair = [a, b];
-        }
-      }
-    }
-  }
-
-  return bestPair;
-}
-
 export async function fetchRandomPair() {
-  const candidates = await db
-    .select({
-      submission: submissions,
-      task: tasks,
-      rating: modelRatings.rating,
-      matches: modelRatings.matches,
-    })
-    .from(submissions)
-    .innerJoin(tasks, eq(submissions.taskId, tasks.id))
-    .innerJoin(modelRatings, eq(submissions.model, modelRatings.model))
-    .orderBy(sql`random()`)
-    .limit(80);
-
-  const smartPair = chooseBestPair(candidates);
-
-  if (smartPair) {
-    return smartPair.map(({ submission, task }) => ({ submission, task })) as [
-      {
-        submission: typeof submissions.$inferSelect;
-        task: typeof tasks.$inferSelect;
-      },
-      {
-        submission: typeof submissions.$inferSelect;
-        task: typeof tasks.$inferSelect;
-      },
-    ];
-  }
-
   const [a] = await db
     .select({
       submission: submissions,

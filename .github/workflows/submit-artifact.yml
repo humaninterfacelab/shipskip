@@ -13,7 +13,6 @@ on:
         default: '["google/gemini-3.1-flash-lite-preview"]'
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
@@ -123,8 +122,6 @@ jobs:
               source_sha: $source_sha,
             }' > manifest.json
 
-          cp manifest.json "submission-record-${SUBMISSION_ID}.json"
-
       - name: Stage artifact files
         shell: bash
         run: |
@@ -143,13 +140,6 @@ jobs:
           overwrite: true
           retention-days: 90
           path: artifact/*
-
-      - name: Upload submission record
-        uses: actions/upload-artifact@v7
-        with:
-          name: submission-record-${{ env.SUBMISSION_ID }}
-          retention-days: 90
-          path: submission-record-${{ env.SUBMISSION_ID }}.json
 
       - name: Upload logs on failure
         if: failure()
@@ -182,8 +172,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   commit-submissions:
-    needs: generate
-    if: ${{ always() && needs.generate.result != 'skipped' && needs.generate.result != 'cancelled' }}
+    needs:
+      - prepare
+      - generate
+    if: ${{ needs.generate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -193,36 +185,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Find submission records
-        id: records
+      - name: Commit submission records
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" --paginate \
-            --jq '.artifacts[] | select(.name | startswith("submission-record-")) | .name' \
-            > submission-record-artifacts.txt
-
-          if [[ -s submission-record-artifacts.txt ]]; then
-            echo "has_records=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No successful submission records to commit."
-            echo "has_records=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download submission records
-        if: ${{ steps.records.outputs.has_records == 'true' }}
-        uses: actions/download-artifact@v8
-        with:
-          pattern: submission-record-*
-          path: ./submission-records
-          merge-multiple: true
-
-      - name: Commit submission records
-        if: ${{ steps.records.outputs.has_records == 'true' }}
-        shell: bash
+          MATRIX: ${{ needs.prepare.outputs.matrix }}
         run: |
           set -euo pipefail
 
@@ -231,10 +197,29 @@ jobs:
 
           git pull --ff-only origin "$GITHUB_REF_NAME"
 
-          jq -s -c --slurpfile existing submissions.jsonl '
+          jq -n -c \
+            --argjson matrix "$MATRIX" \
+            --slurpfile existing submissions.jsonl \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --arg submitted_by "$GITHUB_ACTOR" \
+            --arg source_sha "$GITHUB_SHA" '
             ($existing | map(.id)) as $existing_ids |
-            .[] | select((.id as $id | $existing_ids | index($id)) | not)
-          ' ./submission-records/*.json > submissions-to-append.jsonl
+            $matrix.include[] |
+            select(.submission_id as $id | ($existing_ids | index($id)) | not) |
+            {
+              id: .submission_id,
+              model: (.model | split(":")[0]),
+              task: .task,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              run_url: $run_url,
+              artifact_name: ("artifact-" + .submission_id),
+              submitted_by: $submitted_by,
+              source_sha: $source_sha,
+            }
+          ' > submissions-to-append.jsonl
 
           if [[ ! -s submissions-to-append.jsonl ]]; then
             exit 0

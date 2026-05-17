@@ -47,8 +47,6 @@ jobs:
 
       - name: Extract and validate submissions
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -56,7 +54,6 @@ jobs:
           HEAD_FILE="head/submissions.jsonl"
 
           BASE_LINES=$(wc -l < "$BASE_FILE" | tr -d ' ')
-          HEAD_LINES=$(wc -l < "$HEAD_FILE" | tr -d ' ')
 
           tail -n +$((BASE_LINES + 1)) "$HEAD_FILE" > submissions-to-publish.jsonl
 
@@ -83,8 +80,9 @@ jobs:
             $new[] | .id as $id | select($base_ids | index($id)) | $id
           ' | sort -u)
           if [[ -n "$EXISTING_IDS" ]]; then
-            echo "Submission ids already exists in the base file." >&2
+            echo "Submission ids already exist in the base file." >&2
             echo "$EXISTING_IDS" >&2
+            exit 1
           fi
 
       - name: Setup Node.js
