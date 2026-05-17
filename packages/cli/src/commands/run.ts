@@ -60,10 +60,21 @@ const runAction = async (options: RunOptions) => {
   const logger = getLogger();
 
   try {
-    logger.info({ task: options.task, model: options.model }, "Run started");
-
     const sessionDir = getSessionDir();
     const appDir = path.join(sessionDir, "app");
+    const buildDir = path.join(sessionDir, "build");
+    const archivePath = path.join(sessionDir, "app.tar.gz");
+    const logsPath = path.join(sessionDir, "logs.ndjson");
+
+    logger.info(
+      {
+        task: options.task,
+        model: options.model,
+        sessionDir,
+        appDir,
+      },
+      "Run started",
+    );
 
     logger.debug({ sessionDir, appDir }, "Resolved session directories");
 
@@ -73,8 +84,6 @@ const runAction = async (options: RunOptions) => {
       { task: options.task, template: task.template },
       "Task resolved",
     );
-
-    logger.debug({ prompt, systemPrompt }, "Prompts resolved");
 
     const modelId = options.model.trim();
 
@@ -118,13 +127,11 @@ const runAction = async (options: RunOptions) => {
             summarizerModel: model,
           });
 
-          logger.trace({ compactedMessages });
-
           return {
             messages: compactedMessages,
           };
         } catch (error) {
-          logger.error({ error }, "Failed to compact messages");
+          logger.error({ err: error }, "Failed to compact messages");
           return {};
         }
       },
@@ -148,8 +155,6 @@ const runAction = async (options: RunOptions) => {
     let currentPartType = "";
 
     for await (const part of result.fullStream) {
-      logger.trace({ part }, "Agent stream event");
-
       if (currentPartType !== part.type) {
         process.stderr.write("\n");
         currentPartType = part.type;
@@ -169,6 +174,7 @@ const runAction = async (options: RunOptions) => {
         case "tool-call": {
           const toolName = part.toolName ?? "unknown";
           const input = truncate(JSON.stringify(part.input ?? "unknown"));
+          logger.debug({ toolName, input }, "Tool call");
           process.stderr.write(pc.yellow(`Tool call: ${toolName}`));
           process.stderr.write(pc.dim(`\nInput: ${input}`));
           break;
@@ -176,12 +182,13 @@ const runAction = async (options: RunOptions) => {
 
         case "tool-result": {
           const result = truncate(JSON.stringify(part.output ?? "unknown"));
+          logger.debug({ result }, "Tool result");
           process.stderr.write(pc.dim(`Output: ${result}`));
           break;
         }
 
         case "finish": {
-          logger.info({ usage: part.totalUsage });
+          logger.info({ usage: part.totalUsage }, "Agent finished");
           break;
         }
 
@@ -196,11 +203,17 @@ const runAction = async (options: RunOptions) => {
 
     logger.info("Agent stream closed");
 
-    logger.info({ sessionDir, appDir }, "Building app");
+    logger.info(
+      { sessionDir, appDir, buildDir, archivePath, logsPath },
+      "Building app",
+    );
     await buildApp(sessionDir, appDir, task.template);
-    logger.info("App built");
+    logger.info({ buildDir, archivePath }, "App built");
 
-    logger.info("Run completed");
+    logger.info(
+      { sessionDir, appDir, buildDir, archivePath, logsPath },
+      "Run completed",
+    );
   } catch (error) {
     logger.error({ err: error }, "Execution failed");
     process.exitCode = 1;

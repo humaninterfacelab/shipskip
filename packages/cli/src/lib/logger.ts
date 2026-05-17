@@ -10,7 +10,7 @@ let logger: pino.Logger | undefined;
 export function getLogger() {
   if (logger) return logger;
 
-  const level = "trace";
+  const level = "debug";
 
   const fileStream = pino.destination({
     dest: path.join(getSessionDir(), "logs.ndjson"),
