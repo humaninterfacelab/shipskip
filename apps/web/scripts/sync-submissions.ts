@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import { notInArray } from "drizzle-orm";
+import { notInArray, sql } from "drizzle-orm";
 import z from "zod";
 
 import { db } from "@/lib/db/client";
@@ -33,35 +33,47 @@ async function main() {
 
   const ids = rows.map((row) => row.id);
 
-  for (const row of rows) {
-    await db
+  await db.transaction(async (tx) => {
+    if (rows.length === 0) {
+      await tx.delete(submissions);
+      await tx.delete(modelRatings);
+      return;
+    }
+
+    await tx
       .insert(submissions)
-      .values({
-        id: row.id,
-        model: row.model,
-        submittedBy: row.submitted_by ?? null,
-        taskId: row.task,
-      })
-      .onConflictDoUpdate({
-        target: submissions.id,
-        set: {
+      .values(
+        rows.map((row) => ({
+          id: row.id,
           model: row.model,
           submittedBy: row.submitted_by ?? null,
           taskId: row.task,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: submissions.id,
+        set: {
+          model: sql`excluded.model`,
+          submittedBy: sql`excluded.submitted_by`,
+          taskId: sql`excluded.task_id`,
         },
       });
 
-    await db
+    await tx
       .insert(modelRatings)
-      .values({ model: row.model })
+      .values(
+        [...new Set(rows.map((row) => row.model))].map((model) => ({ model })),
+      )
       .onConflictDoNothing();
-  }
 
-  if (ids.length > 0) {
-    await db.delete(submissions).where(notInArray(submissions.id, ids));
-  } else {
-    await db.delete(submissions);
-  }
+    await tx.delete(submissions).where(notInArray(submissions.id, ids));
+    await tx.delete(modelRatings).where(
+      notInArray(
+        modelRatings.model,
+        rows.map((row) => row.model),
+      ),
+    );
+  });
 
   console.log(`Synced ${rows.length} submissions`);
 }

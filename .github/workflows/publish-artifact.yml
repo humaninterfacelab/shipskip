@@ -63,7 +63,7 @@ jobs:
           jq -s -e '
             all(.[];
               type == "object" and
-              (.id | type == "string") and
+              (.id | type == "string" and test("^[0-9a-f]{8}$")) and
               (.artifact_name == ("artifact-" + .id)) and
               (.source_sha | type == "string") and
               ((.run_id | type) == "number") and

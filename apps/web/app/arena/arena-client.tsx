@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { feedback, fetchRandomPair, vote } from "@/actions/arena";
+import { fetchRandomPair, vote } from "@/actions/arena";
 import { FeedbackPanel, type Reason } from "@/components/feedback-panel";
 import { Options } from "@/components/option-panel";
 import { PreviewMode, PreviewToggle } from "@/components/preview-toggle";
@@ -41,38 +41,39 @@ export function ArenaClient({ pair }: { pair: Pair }) {
     });
   };
 
-  const submitFeedback = async (voteId: string) => {
-    if (selectedReasons.size > 0) {
-      await feedback({
-        voteId,
-        content: Array.from(selectedReasons).join(","),
-      });
-      setSelectedReasons(new Set());
-    }
-  };
-
-  const submitVote = async () => {
+  const submitVote = () => {
     if (!selectedOptionId || isVoting) return;
 
+    const shipped = pair.find(
+      ({ submission }) => submission.id === selectedOptionId,
+    );
+
+    const skipped = pair.find(
+      ({ submission }) => submission.id !== selectedOptionId,
+    );
+
+    if (!shipped || !skipped) return;
+
     startVoting(async () => {
-      const shipped = pair.find((o) => o.submission.id === selectedOptionId);
-      const skipped = pair.find((o) => o.submission.id !== selectedOptionId);
+      try {
+        await vote({
+          shipSubmissionId: shipped.submission.id,
+          skipSubmissionId: skipped.submission.id,
+          feedbackReasons: [...selectedReasons],
+        });
 
-      if (!shipped || !skipped) return;
+        toast.success("Vote submitted", {
+          description: `You chose to ship ${shipped.submission.model} for ${shipped.task.title}`,
+        });
 
-      const voteId = await vote({
-        shipModel: shipped.submission.model,
-        skipModel: skipped.submission.model,
-        taskId: shipped.task.id ?? skipped.task.id,
-      });
-
-      await submitFeedback(voteId);
-
-      toast.success("Vote Submitted", {
-        description: `You chose to ship ${shipped.submission.model} for ${shipped.task.title}`,
-      });
-
-      setVoteSubmitted(true);
+        setVoteSubmitted(true);
+        setSelectedReasons(new Set());
+      } catch (error) {
+        toast.error("Vote not counted", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong.",
+        });
+      }
     });
   };
 
@@ -129,9 +130,9 @@ export function ArenaClient({ pair }: { pair: Pair }) {
         )}
       >
         <div
-          aria-hidden={!selectedOptionId && !voteSubmitted}
+          aria-hidden={!selectedOptionId || voteSubmitted}
           className={cn(
-            selectedOptionId || voteSubmitted
+            selectedOptionId && !voteSubmitted
               ? "opacity-100"
               : "pointer-events-none opacity-0 select-none",
           )}

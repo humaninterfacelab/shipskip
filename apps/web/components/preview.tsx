@@ -52,6 +52,9 @@ export function Preview({
           className={cn("h-full w-full", frameClassName)}
           src={src}
           title={title}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          loading="lazy"
         />
       </div>
     </div>

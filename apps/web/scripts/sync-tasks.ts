@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 import taskRegistry from "@shipskip/tasks/task-registry.json";
-import { notInArray } from "drizzle-orm";
+import { notInArray, sql } from "drizzle-orm";
 import z from "zod";
 
 import { db } from "@/lib/db/client";
@@ -34,32 +34,27 @@ async function main() {
 
   const ids = rows.map((row) => row.id);
 
-  for (const row of rows) {
-    await db
+  await db.transaction(async (tx) => {
+    if (rows.length === 0) {
+      await tx.delete(tasks);
+      return;
+    }
+
+    await tx
       .insert(tasks)
-      .values({
-        id: row.id,
-        template: row.template,
-        title: row.title,
-        prompt: row.prompt,
-        systemPrompt: row.systemPrompt,
-      })
+      .values(rows)
       .onConflictDoUpdate({
         target: tasks.id,
         set: {
-          template: row.template,
-          title: row.title,
-          prompt: row.prompt,
-          systemPrompt: row.systemPrompt,
+          template: sql`excluded.template`,
+          title: sql`excluded.title`,
+          prompt: sql`excluded.prompt`,
+          systemPrompt: sql`excluded.system_prompt`,
         },
       });
-  }
 
-  if (ids.length > 0) {
-    await db.delete(tasks).where(notInArray(tasks.id, ids));
-  } else {
-    await db.delete(tasks);
-  }
+    await tx.delete(tasks).where(notInArray(tasks.id, ids));
+  });
 
   console.log(`Synced ${rows.length} tasks`);
 }

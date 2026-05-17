@@ -1,4 +1,4 @@
-import { fetchLeaderboard } from "@/actions/arena";
+import { fetchLeaderboard } from "@/actions/leaderboard";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,7 +18,7 @@ export default async function LeaderboardPage() {
       <div className="flex flex-col justify-between gap-4">
         <div className="flex flex-col gap-2">
           <h1 className="text-xl font-semibold tracking-tight">
-            Models ranked by ship votes
+            Models ranked by shipped votes
           </h1>
           <p className="text-muted-foreground max-w-2xl leading-6">
             Each arena vote is scored as a head-to-head Elo match. New models

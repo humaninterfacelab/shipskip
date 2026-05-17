@@ -11,13 +11,13 @@ type FeedbackPanelProps = {
 };
 
 export const feedbackReasons = [
-  "Good Colors",
-  "Consistent Design",
-  "Mobile Friendly",
-  "Good Content",
-  "Good Animations",
+  "Good colours",
+  "Consistent design",
+  "Mobile friendly",
+  "Good content",
+  "Good animations",
   "Accessible",
-  "Easy to Use",
+  "Easy to use",
 ] as const;
 
 export type Reason = (typeof feedbackReasons)[number];

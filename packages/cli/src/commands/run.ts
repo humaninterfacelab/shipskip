@@ -118,7 +118,7 @@ const runAction = async (options: RunOptions) => {
             summarizerModel: model,
           });
 
-          logger.trace({ compactMessages });
+          logger.trace({ compactedMessages });
 
           return {
             messages: compactedMessages,
@@ -197,7 +197,7 @@ const runAction = async (options: RunOptions) => {
     logger.info("Agent stream closed");
 
     logger.info({ sessionDir, appDir }, "Building app");
-    await buildApp(sessionDir, appDir);
+    await buildApp(sessionDir, appDir, task.template);
     logger.info("App built");
 
     logger.info("Run completed");

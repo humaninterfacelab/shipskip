@@ -4,16 +4,26 @@ import { tool } from "ai";
 import { execa } from "execa";
 import { z } from "zod";
 
+import { createSafeExecutionEnv } from "../safe-env";
 import { truncate } from "../utils";
 
-const ALLOWED_COMMANDS = new Set([
-  "node",
-  "npm",
+const ALLOWED_COMMANDS = new Set(["npm", "pnpm", "yarn", "bun"]);
+
+const ALLOWED_PACKAGE_MANAGER_ACTIONS = new Set([
+  "install",
+  "add",
+  "remove",
+  "run",
+  "test",
+  "lint",
+]);
+
+const DENIED_PACKAGE_MANAGER_ACTIONS = new Set([
+  "create",
+  "dlx",
+  "exec",
+  "x",
   "npx",
-  "pnpm",
-  "yarn",
-  "bun",
-  "tsc",
 ]);
 
 export function createRunScriptTool(workspace: string) {
@@ -39,7 +49,7 @@ export function createRunScriptTool(workspace: string) {
         timeoutMs: z.number().int().min(1_000).max(60_000).default(30_000),
       }),
 
-      execute: async ({ command, args, timeoutMs }) => {
+      execute: async ({ command, args = [], timeoutMs }) => {
         validateCommand(command, args);
 
         const commandLine = [command, ...args].join(" ");
@@ -51,11 +61,8 @@ export function createRunScriptTool(workspace: string) {
           maxBuffer: 5_000_000,
           stdin: "ignore",
           forceKillAfterDelay: 1_000,
-          env: {
-            ...process.env,
-            CI: process.env.CI ?? "1",
-            npm_config_yes: process.env.npm_config_yes ?? "true",
-          },
+          env: createSafeExecutionEnv(),
+          extendEnv: false,
         });
 
         return {
@@ -86,5 +93,23 @@ function validateCommand(command: string, args: string[]) {
 
   if (args.some((arg) => arg.includes("\0"))) {
     throw new Error("Invalid command argument");
+  }
+
+  const [action] = args;
+
+  if (!action) {
+    throw new Error("Package manager action is required");
+  }
+
+  if (action.startsWith("-")) {
+    throw new Error(`Package manager option not allowed: ${action}`);
+  }
+
+  if (DENIED_PACKAGE_MANAGER_ACTIONS.has(action)) {
+    throw new Error(`Package manager action not allowed: ${action}`);
+  }
+
+  if (!ALLOWED_PACKAGE_MANAGER_ACTIONS.has(action)) {
+    throw new Error(`Package manager action not allowed: ${action}`);
   }
 }

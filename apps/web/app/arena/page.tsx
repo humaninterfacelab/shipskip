@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function ArenaPage() {
   const pair = await fetchRandomPair();
 
-  if (!pair) return <main>No pairs found!</main>;
+  if (!pair) return <main>No matchups available yet.</main>;
 
   const key = `${pair[0].submission.id}:${pair[1].submission.id}`;
   return <ArenaClient pair={pair} key={key} />;

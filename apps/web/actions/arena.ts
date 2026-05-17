@@ -1,7 +1,8 @@
 "use server";
 
-import { and, desc, eq, InferInsertModel, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
+import { Reason } from "@/components/feedback-panel";
 import { db } from "@/lib/db";
 import {
   feedbacks,
@@ -12,6 +13,22 @@ import {
 } from "@/lib/db/schema";
 
 const K_FACTOR = 32;
+
+const feedbackReasons = new Set([
+  "Good colours",
+  "Consistent design",
+  "Mobile friendly",
+  "Good content",
+  "Good animations",
+  "Accessible",
+  "Easy to use",
+]);
+
+type VoteInput = {
+  shipSubmissionId: string;
+  skipSubmissionId: string;
+  feedbackReasons?: string[];
+};
 
 type MatchupCandidate = {
   submission: typeof submissions.$inferSelect;
@@ -134,24 +151,83 @@ export async function fetchRandomPair() {
   return [a, b] as const;
 }
 
-type Vote = InferInsertModel<typeof votes>;
+const validFeedbackReasons = new Set(feedbackReasons);
 
-export async function vote(voteInput: Vote) {
-  const [insertedVote] = await db.transaction(async (tx) => {
+function normaliseFeedbackReasons(reasons?: string[]) {
+  if (!reasons?.length) return null;
+
+  const uniqueReasons = [...new Set(reasons)];
+
+  const hasInvalidReason = uniqueReasons.some(
+    (reason) => !validFeedbackReasons.has(reason as Reason),
+  );
+
+  if (hasInvalidReason) {
+    throw new Error("Invalid feedback reasons.");
+  }
+
+  return uniqueReasons.join(",");
+}
+
+export async function vote(voteInput: VoteInput) {
+  if (voteInput.shipSubmissionId === voteInput.skipSubmissionId) {
+    throw new Error("Invalid vote.");
+  }
+
+  const feedbackContent = normaliseFeedbackReasons(voteInput.feedbackReasons);
+
+  const insertedVoteId = await db.transaction(async (tx) => {
+    const selectedSubmissions = await tx
+      .select()
+      .from(submissions)
+      .where(
+        inArray(submissions.id, [
+          voteInput.shipSubmissionId,
+          voteInput.skipSubmissionId,
+        ]),
+      );
+
+    const shipped = selectedSubmissions.find(
+      (submission) => submission.id === voteInput.shipSubmissionId,
+    );
+    const skipped = selectedSubmissions.find(
+      (submission) => submission.id === voteInput.skipSubmissionId,
+    );
+
+    if (!shipped || !skipped) {
+      throw new Error("Invalid vote submissions.");
+    }
+
+    if (shipped.taskId !== skipped.taskId) {
+      throw new Error("Vote submissions must belong to the same task.");
+    }
+
+    if (shipped.model === skipped.model) {
+      throw new Error("Vote submissions must use different models.");
+    }
+
+    await tx.execute(
+      sql`select "model" from "model_ratings" where "model" in (${shipped.model}, ${skipped.model}) order by "model" for update`,
+    );
+
     const [inserted] = await tx
       .insert(votes)
-      .values(voteInput)
+      .values({
+        shipModel: shipped.model,
+        skipModel: skipped.model,
+        taskId: shipped.taskId,
+      })
       .returning({ id: votes.id });
 
     const [winner] = await tx
       .select()
       .from(modelRatings)
-      .where(eq(modelRatings.model, voteInput.shipModel))
+      .where(eq(modelRatings.model, shipped.model))
       .limit(1);
     const [loser] = await tx
       .select()
       .from(modelRatings)
-      .where(eq(modelRatings.model, voteInput.skipModel))
+      .where(eq(modelRatings.model, skipped.model))
       .limit(1);
 
     if (!winner || !loser) {
@@ -175,7 +251,7 @@ export async function vote(voteInput: Vote) {
         matches: winner.matches + 1,
         updatedAt,
       })
-      .where(eq(modelRatings.model, voteInput.shipModel));
+      .where(eq(modelRatings.model, shipped.model));
 
     await tx
       .update(modelRatings)
@@ -186,23 +262,17 @@ export async function vote(voteInput: Vote) {
         matches: loser.matches + 1,
         updatedAt,
       })
-      .where(eq(modelRatings.model, voteInput.skipModel));
+      .where(eq(modelRatings.model, skipped.model));
 
-    return [inserted];
+    if (feedbackContent) {
+      await tx.insert(feedbacks).values({
+        voteId: inserted.id,
+        content: feedbackContent,
+      });
+    }
+
+    return inserted.id;
   });
 
-  return insertedVote.id;
-}
-
-export async function fetchLeaderboard() {
-  return db
-    .select()
-    .from(modelRatings)
-    .orderBy(desc(modelRatings.rating), desc(modelRatings.matches));
-}
-
-type Feedback = InferInsertModel<typeof feedbacks>;
-
-export async function feedback(feedback: Feedback) {
-  await db.insert(feedbacks).values(feedback);
+  return insertedVoteId;
 }

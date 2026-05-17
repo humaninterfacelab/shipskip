@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { z } from "zod";
 
+import { createSafeExecutionEnv } from "./safe-env";
+
 const TASK_REGISTRY_PATH = fileURLToPath(
   import.meta.resolve("@shipskip/tasks/task-registry.json"),
 );
@@ -65,8 +67,20 @@ function resolveTaskAssetPath(assetPath: string) {
   return resolvedPath;
 }
 
-export async function buildApp(sessionDir: string, appDir: string) {
-  const target = path.resolve(appDir, "build.sh");
+export async function buildApp(
+  sessionDir: string,
+  appDir: string,
+  templatePath: string,
+) {
+  const target = getTemplateBuildScriptPath(templatePath);
 
-  await execa(target, [sessionDir], { cwd: appDir });
+  await execa(target, [sessionDir], {
+    cwd: appDir,
+    env: createSafeExecutionEnv(),
+    extendEnv: false,
+  });
+}
+
+export function getTemplateBuildScriptPath(templatePath: string) {
+  return resolveTaskAssetPath(path.join(templatePath, "build.sh"));
 }
