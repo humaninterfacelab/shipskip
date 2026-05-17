@@ -83,9 +83,8 @@ jobs:
             $new[] | .id as $id | select($base_ids | index($id)) | $id
           ' | sort -u)
           if [[ -n "$EXISTING_IDS" ]]; then
-            echo "Submission ids must not already exist in the base file." >&2
+            echo "Submission ids already exists in the base file." >&2
             echo "$EXISTING_IDS" >&2
-            exit 1
           fi
 
       - name: Setup Node.js

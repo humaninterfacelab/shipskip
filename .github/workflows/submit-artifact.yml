@@ -240,7 +240,13 @@ jobs:
             exit 0
           fi
 
+          if [[ -s submissions.jsonl ]] && [[ "$(tail -c 1 submissions.jsonl)" != $'\n' ]]; then
+            printf '\n' >> submissions.jsonl
+          fi
+
           cat submissions-to-append.jsonl >> submissions.jsonl
+          jq -s -e 'all(.[]; type == "object")' submissions.jsonl > /dev/null
+
           git add submissions.jsonl
           git commit -m "Add shipskip submissions" || exit 0
           git push origin "HEAD:${GITHUB_REF_NAME}"
