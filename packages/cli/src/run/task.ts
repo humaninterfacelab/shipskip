@@ -76,6 +76,18 @@ export async function assertWorkspaceChanged(workspaceDir: string) {
   }
 }
 
+export function exportWorkspaceCode(workspaceDir: string, outputDir: string) {
+  const destDir = path.join(outputDir, "workspace");
+  fs.cpSync(workspaceDir, destDir, {
+    recursive: true,
+    filter: (src) => {
+      const rel = path.relative(workspaceDir, src);
+      const parts = rel.split(path.sep);
+      return !parts.some((p) => p === ".git" || p === "node_modules" || p === ".next");
+    },
+  });
+}
+
 export async function buildArtifact(workspaceDir: string, outputDir: string) {
   consola.start("Build started");
   await execa("./build.sh", [outputDir], {

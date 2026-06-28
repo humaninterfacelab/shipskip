@@ -8,6 +8,7 @@ import { buildAgentSession, exportSession } from "../run/session";
 import {
   assertWorkspaceChanged,
   buildArtifact,
+  exportWorkspaceCode,
   initWorkspaceGit,
   loadTaskResources,
   scaffoldWorkspace,
@@ -58,6 +59,8 @@ const runAction = async (options: RunOptions) => {
   await assertWorkspaceChanged(workspaceDir);
 
   await exportSession(session, sessionRootDir, options.output);
+
+  exportWorkspaceCode(workspaceDir, options.output);
 
   session.dispose();
 
