@@ -112,7 +112,7 @@ jobs:
             run_id=$(jq -r .run_id <<< "$sub")
             source_sha=$(jq -r .source_sha <<< "$sub")
             task=$(jq -r .task <<< "$sub")
-            task_dir="${task##*/}"
+            task_dir="$task"
 
             echo "Publishing submission $id ($task)..."
 
