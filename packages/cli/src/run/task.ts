@@ -62,7 +62,7 @@ export async function initWorkspaceGit(workspaceDir: string) {
   await execa("git", ["add", "-A"], { cwd: workspaceDir });
   await execa(
     "git",
-    ["commit", "-m", "scaffold", "--author=shipskip-cli <@shipskip/cli>"],
+    ["commit", "-m", "scaffold"],
     { cwd: workspaceDir },
   );
 }
