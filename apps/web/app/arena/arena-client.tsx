@@ -64,7 +64,6 @@ export function ArenaClient({ pair }: { pair: Pair }) {
 
   return (
     <main className="min-h-content container mx-auto flex w-full flex-col justify-center gap-12 py-12">
-      {/* Header */}
       <div className="flex justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-lg leading-tight font-medium">
@@ -99,7 +98,6 @@ export function ArenaClient({ pair }: { pair: Pair }) {
         </div>
       </div>
 
-      {/* Cards */}
       <div className="relative flex items-center gap-4 p-px">
         {(
           [
@@ -123,7 +121,6 @@ export function ArenaClient({ pair }: { pair: Pair }) {
         </p>
       </div>
 
-      {/* Footer */}
       <div className="flex items-end justify-between transition-opacity duration-300 ease-out">
         <fieldset
           aria-hidden={!canVote}

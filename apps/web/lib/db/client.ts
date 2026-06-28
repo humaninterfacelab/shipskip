@@ -14,9 +14,11 @@ if (!connectionString) throw new Error("DATABASE_URL is not set");
 // "Failed query" errors on the next request.
 const g = global as unknown as { _pool?: Pool };
 const pool = g._pool ?? new Pool({ connectionString });
-// Prevent unhandled 'error' events from crashing the dev server when the
+// Prevent unhandled 'error' events from crashing the process when the
 // Neon WebSocket closes while the pool is idle.
-pool.on("error", () => {});
+pool.on("error", (err) => {
+  if (process.env.NODE_ENV !== "production") console.warn("[db pool]", err);
+});
 if (process.env.NODE_ENV !== "production") g._pool = pool;
 
 export const db = drizzle(pool, { schema });

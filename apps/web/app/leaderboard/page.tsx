@@ -16,7 +16,16 @@ export const metadata: Metadata = {
 };
 
 export default async function LeaderboardPage() {
-  const rows = await fetchLeaderboard();
+  let rows: Awaited<ReturnType<typeof fetchLeaderboard>>;
+  try {
+    rows = await fetchLeaderboard();
+  } catch {
+    return (
+      <main className="min-h-content container mx-auto py-12 text-sm text-muted-foreground">
+        Could not reach the database. Check your connection and try again.
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-content container mx-auto flex flex-col gap-8 py-12">

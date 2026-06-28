@@ -18,7 +18,6 @@ export const submissions = pgTable(
   {
     id: text("id").primaryKey(),
     model: text("model").notNull(),
-    submittedBy: text("submitted_by"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     taskId: text("task_id")
       .notNull()

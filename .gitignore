@@ -12,6 +12,7 @@ node_modules/
 dist/
 out/
 build/
+output/
 *.tgz
 
 # generated workspaces

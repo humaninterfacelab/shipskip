@@ -38,15 +38,13 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Generate submissions
-        shell: bash
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           TASK: ${{ inputs.task }}
           MODEL: ${{ inputs.model }}
         run: |
-          set -euo pipefail
+          set -u
           mkdir -p artifact submissions
 
           echo "::group::$TASK"
@@ -80,12 +78,9 @@ jobs:
           if-no-files-found: error
 
       - name: Commit submissions
-        shell: bash
         env:
           TASK: ${{ inputs.task }}
           MODEL: ${{ inputs.model }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add submissions/
-          git diff --cached --quiet || git commit -m "Add $TASK submission ($MODEL)" && git push
+          git diff --cached --quiet || { git commit -m "Add $TASK submission ($MODEL)" && git push; }

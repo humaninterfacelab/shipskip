@@ -10,4 +10,3 @@ export function createSessionDirectories() {
     workspaceDir: path.join(sessionRootDir, "workspace"),
   };
 }
-
