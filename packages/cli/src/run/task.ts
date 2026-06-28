@@ -68,17 +68,26 @@ export async function initWorkspaceGit(workspaceDir: string) {
 }
 
 export async function assertWorkspaceChanged(workspaceDir: string) {
-  const { stdout } = await execa("git", ["status", "--porcelain"], {
+  const { stdout: status } = await execa("git", ["status", "--porcelain"], {
     cwd: workspaceDir,
   });
-  if (!stdout.trim()) {
+  const { stdout: count } = await execa("git", ["rev-list", "--count", "HEAD"], {
+    cwd: workspaceDir,
+  });
+  if (!status.trim() && parseInt(count.trim(), 10) <= 1) {
     throw new Error("Agent made no changes to the workspace. Aborting build.");
   }
 }
 
 export async function exportWorkspaceCode(workspaceDir: string, outputDir: string) {
   await execa("git", ["add", "-A"], { cwd: workspaceDir });
-  await execa("git", ["commit", "-m", "agent"], { cwd: workspaceDir });
+  const { exitCode } = await execa("git", ["diff", "--cached", "--quiet"], {
+    cwd: workspaceDir,
+    reject: false,
+  });
+  if (exitCode !== 0) {
+    await execa("git", ["commit", "-m", "agent"], { cwd: workspaceDir });
+  }
   await execa(
     "git",
     ["archive", "--format=tar.gz", "-o", path.join(outputDir, "workspace.tar.gz"), "HEAD"],
