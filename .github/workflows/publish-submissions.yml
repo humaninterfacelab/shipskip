@@ -1,0 +1,193 @@
+name: Publish submissions
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  publish:
+    if: ${{ github.event.label.name == 'publish' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
+      R2_BUCKET_NAME: shipskip-artifacts
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+
+    steps:
+      - name: Verify actor permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${{ github.actor }}/permission" --jq '.permission')
+          if [[ "$PERMISSION" != "admin" && "$PERMISSION" != "write" ]]; then
+            echo "Actor '${{ github.actor }}' does not have write access." >&2
+            exit 1
+          fi
+
+      - name: Checkout base submissions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          sparse-checkout: submissions
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout head submissions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+          sparse-checkout: submissions
+          sparse-checkout-cone-mode: false
+
+      - name: Find new submissions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_IDS=$(ls base/submissions/*.json 2>/dev/null | xargs -I{} basename {} .json | sort -u || true)
+          HEAD_IDS=$(ls head/submissions/*.json 2>/dev/null | xargs -I{} basename {} .json | sort -u || true)
+          NEW_IDS=$(comm -13 <(echo "$BASE_IDS") <(echo "$HEAD_IDS"))
+
+          if [[ -z "$NEW_IDS" ]]; then
+            echo "No new submissions found in this PR." >&2
+            exit 1
+          fi
+
+          : > submissions-to-publish.jsonl
+          while IFS= read -r id; do
+            file="head/submissions/${id}.json"
+            jq -e '
+              type == "object" and
+              (.id | type == "string" and test("^[0-9a-f]{8}$")) and
+              (.model | type == "string" and length > 0) and
+              (.task | type == "string" and length > 0) and
+              ((.run_id | type) == "number") and
+              ((.run_attempt | type) == "number") and
+              (.source_sha | type == "string" and test("^[0-9a-f]{40}$"))
+            ' "$file" > /dev/null
+            jq -c . "$file" >> submissions-to-publish.jsonl
+          done <<< "$NEW_IDS"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install wrangler
+        run: npm install -g wrangler@3
+
+      - name: Publish submissions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.ARTIFACT_READER_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+
+          : > publish-results.jsonl
+          declare -A DOWNLOADED
+          ok=0
+          fail=0
+
+          while IFS= read -r sub; do
+            id=$(jq -r .id <<< "$sub")
+            run_id=$(jq -r .run_id <<< "$sub")
+            source_sha=$(jq -r .source_sha <<< "$sub")
+            task=$(jq -r .task <<< "$sub")
+            task_dir="${task##*/}"
+
+            echo "Publishing submission $id ($task)..."
+
+            if [[ "$source_sha" != "${{ github.event.pull_request.head.sha }}" ]]; then
+              echo "::warning::$id source_sha $source_sha != PR head, skipping"
+              fail=$((fail+1)); continue
+            fi
+
+            if [[ -z "${DOWNLOADED[$run_id]:-}" ]]; then
+              if ! gh api "repos/$HEAD_REPO/actions/runs/$run_id" \
+                   --jq "select(.head_sha==\"$source_sha\") | .id" | grep -q .; then
+                echo "::warning::run $run_id not found on head sha, skipping $id"
+                fail=$((fail+1)); continue
+              fi
+
+              dl_dir="dl/$run_id"
+              if ! gh run download "$run_id" \
+                   --repo "$HEAD_REPO" \
+                   --name "submissions-$run_id" \
+                   --dir "$dl_dir"; then
+                echo "::warning::artifact download failed for run $run_id, skipping $id"
+                fail=$((fail+1)); continue
+              fi
+              DOWNLOADED[$run_id]="$dl_dir"
+            fi
+
+            art="${DOWNLOADED[$run_id]}/$task_dir"
+
+            if [[ ! -d "$art/build" || ! -f "$art/session.jsonl" ]]; then
+              echo "::warning::$id missing build/ or session.jsonl in artifact"
+              fail=$((fail+1)); continue
+            fi
+
+            if ! wrangler pages deploy "$art/build" \
+                 --project-name="$PAGES_PROJECT_NAME" \
+                 --branch="$id" \
+                 --commit-dirty=true; then
+              echo "::warning::pages deploy failed for $id"
+              fail=$((fail+1)); continue
+            fi
+
+            if ! wrangler r2 object put "$R2_BUCKET_NAME/$id/session.jsonl" \
+                 --remote --file "$art/session.jsonl"; then
+              echo "::warning::r2 upload failed for $id"
+              fail=$((fail+1)); continue
+            fi
+
+            jq -n -c \
+              --arg id "$id" \
+              --arg pages_url "https://$id.$PAGES_PROJECT_NAME.pages.dev" \
+              '{submission_id: $id, pages_url: $pages_url}' \
+              >> publish-results.jsonl
+
+            ok=$((ok+1))
+            echo "Published $id."
+          done < submissions-to-publish.jsonl
+
+          echo "$ok published, $fail failed."
+          [[ "$ok" -gt 0 ]] || { echo "No submissions published." >&2; exit 1; }
+
+      - name: Comment publish URLs on PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Publish succeeded"
+            echo
+            echo "| Submission | Preview |"
+            echo "| --- | --- |"
+            jq -r '"| `\(.submission_id)` | [Preview](\(.pages_url)) |"' publish-results.jsonl
+          } > publish-comment.md
+
+          gh api \
+            --method POST \
+            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            -f body="$(< publish-comment.md)"

@@ -1,0 +1,86 @@
+name: Generate submissions
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task ID (e.g. next-app/saas-landing-page)
+        required: true
+        type: string
+      model:
+        description: Model ID (e.g. openrouter/xiaomi/mimo-v2.5)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate submissions
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TASK: ${{ inputs.task }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact submissions
+
+          echo "::group::$TASK"
+
+          bun dev:cli run \
+            --task "$TASK" \
+            --model "$MODEL" \
+            --output "artifact/$TASK"
+
+          echo "::endgroup::"
+
+          id=$(openssl rand -hex 4)
+
+          jq -n -c \
+            --arg id "$id" \
+            --arg model "$MODEL" \
+            --arg task "$TASK" \
+            --argjson run_id ${{ github.run_id }} \
+            --argjson run_attempt ${{ github.run_attempt }} \
+            --arg source_sha "${{ github.sha }}" \
+            '{id: $id, model: $model, task: $task, run_id: $run_id, run_attempt: $run_attempt, source_sha: $source_sha}' \
+            > "submissions/$id.json"
+
+          echo "Submission $id created for $TASK"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: submissions-${{ github.run_id }}
+          path: artifact/
+          if-no-files-found: error
+
+      - name: Commit submissions
+        shell: bash
+        env:
+          TASK: ${{ inputs.task }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add submissions/
+          git diff --cached --quiet || git commit -m "Add $TASK submission ($MODEL)" && git push

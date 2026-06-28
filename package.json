@@ -1,0 +1,33 @@
+{
+  "name": "shipskip",
+  "description": "Workspace for the shipskip agent CLI.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:cli": "bun packages/cli/src/index.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "bun --filter '*' lint",
+    "test": "bun --filter '*' test",
+    "coverage": "bun --filter '*' coverage",
+    "typecheck": "bun --filter '*' typecheck",
+    "build": "bun --filter '*' build",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@types/node": "latest",
+    "bun-types": "^1.3.13",
+    "eslint": "latest",
+    "eslint-plugin-simple-import-sort": "latest",
+    "prettier": "latest",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "typescript": "^6",
+    "typescript-eslint": "latest"
+  }
+}
