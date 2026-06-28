@@ -76,16 +76,14 @@ export async function assertWorkspaceChanged(workspaceDir: string) {
   }
 }
 
-export function exportWorkspaceCode(workspaceDir: string, outputDir: string) {
-  const destDir = path.join(outputDir, "workspace");
-  fs.cpSync(workspaceDir, destDir, {
-    recursive: true,
-    filter: (src) => {
-      const rel = path.relative(workspaceDir, src);
-      const parts = rel.split(path.sep);
-      return !parts.some((p) => p === ".git" || p === "node_modules" || p === ".next");
-    },
-  });
+export async function exportWorkspaceCode(workspaceDir: string, outputDir: string) {
+  await execa("git", ["add", "-A"], { cwd: workspaceDir });
+  await execa("git", ["commit", "-m", "agent"], { cwd: workspaceDir });
+  await execa(
+    "git",
+    ["archive", "--format=tar.gz", "-o", path.join(outputDir, "workspace.tar.gz"), "HEAD"],
+    { cwd: workspaceDir },
+  );
 }
 
 export async function buildArtifact(workspaceDir: string, outputDir: string) {

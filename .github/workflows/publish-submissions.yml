@@ -141,8 +141,8 @@ jobs:
 
             art="${DOWNLOADED[$run_id]}/$task_dir"
 
-            if [[ ! -d "$art/build" || ! -f "$art/session.jsonl" || ! -d "$art/workspace" ]]; then
-              echo "::warning::$id missing build/, session.jsonl, or workspace/ in artifact"
+            if [[ ! -d "$art/build" || ! -f "$art/session.jsonl" || ! -f "$art/workspace.tar.gz" ]]; then
+              echo "::warning::$id missing build/, session.jsonl, or workspace.tar.gz in artifact"
               fail=$((fail+1)); continue
             fi
 
@@ -160,9 +160,8 @@ jobs:
               fail=$((fail+1)); continue
             fi
 
-            tar -czf "workspace-$id.tar.gz" -C "$art/workspace" .
             if ! wrangler r2 object put "$R2_BUCKET_NAME/$id/workspace.tar.gz" \
-                 --remote --file "workspace-$id.tar.gz"; then
+                 --remote --file "$art/workspace.tar.gz"; then
               echo "::warning::r2 workspace upload failed for $id"
               fail=$((fail+1)); continue
             fi

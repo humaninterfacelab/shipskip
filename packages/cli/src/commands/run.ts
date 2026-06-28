@@ -60,7 +60,7 @@ const runAction = async (options: RunOptions) => {
 
   await exportSession(session, sessionRootDir, options.output);
 
-  exportWorkspaceCode(workspaceDir, options.output);
+  await exportWorkspaceCode(workspaceDir, options.output);
 
   session.dispose();
 
