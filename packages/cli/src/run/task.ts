@@ -90,7 +90,7 @@ export async function exportWorkspaceCode(workspaceDir: string, outputDir: strin
   }
   await execa(
     "git",
-    ["archive", "--format=tar.gz", "-o", path.join(outputDir, "workspace.tar.gz"), "HEAD"],
+    ["archive", "--format=tar.gz", "-o", path.resolve(outputDir, "workspace.tar.gz"), "HEAD"],
     { cwd: workspaceDir },
   );
 }
