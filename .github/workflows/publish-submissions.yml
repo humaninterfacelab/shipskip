@@ -154,13 +154,13 @@ jobs:
             fi
 
             if ! wrangler r2 object put "$R2_BUCKET_NAME/$id/session.jsonl" \
-                 --remote --file "$art/session.jsonl"; then
+                 --file "$art/session.jsonl"; then
               echo "::warning::r2 upload failed for $id"
               fail=$((fail+1)); continue
             fi
 
             if ! wrangler r2 object put "$R2_BUCKET_NAME/$id/workspace.tar.gz" \
-                 --remote --file "$art/workspace.tar.gz"; then
+                 --file "$art/workspace.tar.gz"; then
               echo "::warning::r2 workspace upload failed for $id"
               fail=$((fail+1)); continue
             fi
