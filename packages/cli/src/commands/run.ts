@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 
 import { Command } from "commander";
 
@@ -24,7 +25,9 @@ type RunOptions = {
 const runAction = async (options: RunOptions) => {
   const { provider, modelId } = resolveModelString(options.model);
 
-  fs.mkdirSync(options.output, { recursive: true });
+  const outputDir = path.resolve(options.output);
+
+  fs.mkdirSync(outputDir, { recursive: true });
 
   const { sessionRootDir, workspaceDir } = createSessionDirectories();
 
@@ -58,13 +61,13 @@ const runAction = async (options: RunOptions) => {
 
   await assertWorkspaceChanged(workspaceDir);
 
-  await exportSession(session, sessionRootDir, options.output);
+  await exportSession(session, sessionRootDir, outputDir);
 
-  await exportWorkspaceCode(workspaceDir, options.output);
+  await exportWorkspaceCode(workspaceDir, outputDir);
 
   session.dispose();
 
-  await buildArtifact(workspaceDir, options.output);
+  await buildArtifact(workspaceDir, outputDir);
 };
 
 export const runCommand = new Command("run")

@@ -52,7 +52,7 @@ jobs:
           bun dev:cli run \
             --task "$TASK" \
             --model "$MODEL" \
-            --output "artifact/$TASK"
+            --output artifact
 
           echo "::endgroup::"
 
