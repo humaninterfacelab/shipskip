@@ -75,7 +75,7 @@ jobs:
               type == "object" and
               (.id | type == "string" and test("^[0-9a-f]{8}$")) and
               (.model | type == "string" and length > 0) and
-              (.task | type == "string" and length > 0) and
+              (.task | type == "string" and test("^[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+$")) and
               ((.run_id | type) == "number") and
               ((.run_attempt | type) == "number") and
               (.source_sha | type == "string" and test("^[0-9a-f]{40}$"))
